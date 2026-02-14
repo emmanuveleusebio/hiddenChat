@@ -2,9 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import axios from 'axios';
 
-// Connect to your Node.js server
 const socket = io.connect('https://calcsocket.onrender.com');
-const SECRET_CODE = "1234"; // 👈 Set your secret code here!
+const SECRET_CODE = "1234";
 
 function App() {
   const [calcDisplay, setCalcDisplay] = useState("");
@@ -13,7 +12,6 @@ function App() {
   const [chatLog, setChatLog] = useState([]);
   const chatEndRef = useRef(null);
 
-  // 1. Fetch history from DB when unlocked
   useEffect(() => {
     if (isUnlocked) {
       axios.get('https://calcsocket.onrender.com/messages')
@@ -22,14 +20,13 @@ function App() {
     }
   }, [isUnlocked]);
 
-  // 2. Listen for live updates (No refresh needed)
   useEffect(() => {
     socket.on('receive_message', (newMessage) => {
       setChatLog((prev) => [...prev, newMessage]);
     });
+    return () => socket.off('receive_message');
   }, []);
 
-  // 3. Auto-scroll to bottom
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatLog]);
@@ -43,7 +40,7 @@ function App() {
         setTimeout(() => setCalcDisplay(""), 800);
       }
     } else {
-      setCalcDisplay(prev => prev + val);
+      setCalcDisplay(prev => (prev === "Error" ? val : prev + val));
     }
   };
 
@@ -54,25 +51,34 @@ function App() {
     }
   };
 
-  // --- CHAT VIEW ---
   if (isUnlocked) {
     return (
-      <div style={styles.chatContainer}>
-        <div style={styles.header}>Secret Chat</div>
+      <div style={styles.chatWrapper}>
+        <div style={styles.chatHeader}>
+          <span style={styles.onlineDot}></span>
+          <span style={styles.headerTitle}>Private Cloud</span>
+          <button onClick={() => setIsUnlocked(false)} style={styles.lockBtn}>🔒</button>
+        </div>
+        
         <div style={styles.messageList}>
           {chatLog.map((m, i) => (
-            <div key={i} style={styles.msgBubble}>
-              <p style={styles.msgText}>{m.text}</p>
-              <span style={styles.msgTime}>{new Date(m.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+            <div key={i} style={styles.msgContainer}>
+              <div style={styles.msgBubble}>
+                <p style={styles.msgText}>{m.text}</p>
+                <span style={styles.msgTime}>
+                  {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
             </div>
           ))}
           <div ref={chatEndRef} />
         </div>
+
         <div style={styles.inputArea}>
           <input 
             style={styles.input}
             value={message}
-            placeholder="Write something..."
+            placeholder="Type a message..."
             onChange={(e) => setMessage(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
           />
@@ -82,40 +88,160 @@ function App() {
     );
   }
 
-  // --- CALCULATOR VIEW ---
   return (
-    <div style={styles.calcWrapper}>
-      <div style={styles.screen}>{calcDisplay || "0"}</div>
-      <div style={styles.numPad}>
-        {["7", "8", "9", "4", "5", "6", "1", "2", "3", "C", "0", "="].map(btn => (
-          <button 
-            key={btn} 
-            onClick={() => btn === 'C' ? setCalcDisplay("") : handleCalcPress(btn)} 
-            style={btn === '=' ? styles.equalBtn : styles.btn}
-          >
-            {btn}
-          </button>
-        ))}
+    <div style={styles.calcContainer}>
+      <div style={styles.calcContent}>
+        <div style={styles.displayArea}>
+          <div style={styles.calcValue}>{calcDisplay || "0"}</div>
+        </div>
+        <div style={styles.keypad}>
+          {["C", "/", "*", "7", "8", "9", "4", "5", "6", "1", "2", "3", "0", ".", "="].map(btn => (
+            <button 
+              key={btn} 
+              onClick={() => btn === 'C' ? setCalcDisplay("") : handleCalcPress(btn)} 
+              style={{
+                ...styles.key,
+                ...(btn === '=' ? styles.equalKey : {}),
+                ...(btn === '0' ? styles.zeroKey : {}),
+                ...(isNaN(btn) && btn !== '.' ? styles.operatorKey : {})
+              }}
+            >
+              {btn}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
 const styles = {
-  calcWrapper: { height: '100vh', backgroundColor: '#000', padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' },
-  screen: { color: '#fff', fontSize: '80px', textAlign: 'right', marginBottom: '30px', fontWeight: '200' },
-  numPad: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px' },
-  btn: { height: '80px', borderRadius: '40px', fontSize: '28px', border: 'none', backgroundColor: '#333', color: '#fff' },
-  equalBtn: { height: '80px', borderRadius: '40px', fontSize: '28px', border: 'none', backgroundColor: '#f09433', color: '#fff' },
-  chatContainer: { height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#fff' },
-  header: { padding: '15px', textAlign: 'center', fontWeight: '600', borderBottom: '1px solid #eee' },
-  messageList: { flex: 1, padding: '15px', overflowY: 'auto' },
-  msgBubble: { backgroundColor: '#f1f0f0', padding: '10px 15px', borderRadius: '18px', marginBottom: '10px', alignSelf: 'flex-start', maxWidth: '80%' },
-  msgText: { margin: 0, fontSize: '16px' },
-  msgTime: { fontSize: '10px', color: '#999' },
-  inputArea: { padding: '15px', display: 'flex', alignItems: 'center', borderTop: '1px solid #eee' },
-  input: { flex: 1, padding: '12px', borderRadius: '25px', border: '1px solid #ddd', outline: 'none' },
-  sendBtn: { marginLeft: '10px', backgroundColor: '#007AFF', color: '#fff', border: 'none', borderRadius: '50%', width: '45px', height: '45px', fontSize: '20px' }
+  // --- Global ---
+  calcContainer: {
+    height: '100dvh', // Uses dynamic viewport height (better for mobile)
+    backgroundColor: '#000',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'flex-end',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+  },
+  calcContent: {
+    padding: '20px',
+    maxWidth: '500px',
+    width: '100%',
+    margin: '0 auto',
+  },
+  displayArea: {
+    padding: '20px',
+    marginBottom: '20px',
+  },
+  calcValue: {
+    color: '#fff',
+    fontSize: 'clamp(40px, 15vw, 80px)', // Font shrinks if text is long
+    textAlign: 'right',
+    fontWeight: '300',
+  },
+  keypad: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, 1fr)', // 3 columns looks more like a vault calc
+    gap: '12px',
+  },
+  key: {
+    aspectRatio: '1 / 1',
+    borderRadius: '50%',
+    border: 'none',
+    backgroundColor: '#333',
+    color: '#fff',
+    fontSize: '24px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'opacity 0.1s',
+  },
+  equalKey: { backgroundColor: '#FF9F0A' },
+  operatorKey: { backgroundColor: '#A5A5A5', color: '#000' },
+  zeroKey: { 
+    gridColumn: 'span 2', 
+    aspectRatio: 'auto', 
+    borderRadius: '40px',
+    height: '70px' 
+  },
+
+  // --- Chat View ---
+  chatWrapper: {
+    height: '100dvh',
+    display: 'flex',
+    flexDirection: 'column',
+    backgroundColor: '#F2F2F7',
+  },
+  chatHeader: {
+    padding: '15px 20px',
+    backgroundColor: '#fff',
+    display: 'flex',
+    alignItems: 'center',
+    borderBottom: '1px solid #E5E5EA',
+    paddingTop: 'env(safe-area-inset-top)', // Support for iPhone notch
+  },
+  headerTitle: { flex: 1, fontWeight: '600', fontSize: '17px', marginLeft: '10px' },
+  onlineDot: { width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#34C759' },
+  lockBtn: { background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer' },
+  
+  messageList: {
+    flex: 1,
+    padding: '15px',
+    overflowY: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  msgContainer: {
+    marginBottom: '12px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
+  msgBubble: {
+    backgroundColor: '#fff',
+    padding: '10px 14px',
+    borderRadius: '18px',
+    borderBottomLeftRadius: '4px',
+    maxWidth: '85%',
+    boxShadow: '0 1px 1px rgba(0,0,0,0.05)',
+  },
+  msgText: { margin: 0, fontSize: '16px', color: '#000', lineHeight: '1.4' },
+  msgTime: { fontSize: '11px', color: '#8E8E93', marginTop: '4px', display: 'block' },
+  
+  inputArea: {
+    padding: '10px 15px',
+    paddingBottom: 'calc(10px + env(safe-area-inset-bottom))',
+    backgroundColor: '#fff',
+    display: 'flex',
+    alignItems: 'center',
+    borderTop: '1px solid #E5E5EA',
+  },
+  input: {
+    flex: 1,
+    padding: '10px 16px',
+    backgroundColor: '#F2F2F7',
+    border: 'none',
+    borderRadius: '20px',
+    fontSize: '16px',
+    outline: 'none',
+  },
+  sendBtn: {
+    marginLeft: '12px',
+    backgroundColor: '#007AFF',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '50%',
+    width: '36px',
+    height: '36px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '18px',
+  }
 };
 
 export default App;
