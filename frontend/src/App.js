@@ -3,7 +3,7 @@ import io from 'socket.io-client';
 import axios from 'axios';
 
 // Connect to your Node.js server
-const socket = io.connect('http://localhost:5000');
+const socket = io.connect('https://secret-chat-server.onrender.com');
 const SECRET_CODE = "1234"; // 👈 Set your secret code here!
 
 function App() {
@@ -16,7 +16,7 @@ function App() {
   // 1. Fetch history from DB when unlocked
   useEffect(() => {
     if (isUnlocked) {
-      axios.get('http://localhost:5000/messages')
+      axios.get('https://secret-chat-server.onrender.com/messages')
         .then(res => setChatLog(res.data))
         .catch(err => console.error("Could not load history", err));
     }
