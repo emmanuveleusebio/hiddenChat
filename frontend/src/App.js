@@ -13,7 +13,6 @@ function App() {
   const [chatLog, setChatLog] = useState([]);
   const chatEndRef = useRef(null);
 
-  // Lock logic: Reset everything on exit
   const lockApp = () => {
     setIsUnlocked(false);
     setCalcDisplay("");
@@ -38,15 +37,23 @@ function App() {
 
   const handlePress = (val) => {
     if (val === "=") {
-      if (calcDisplay === SECRET_CODE) setIsUnlocked(true);
-      else {
+      if (calcDisplay === SECRET_CODE) {
+        setIsUnlocked(true);
+      } else {
         setCalcDisplay("Error");
         setTimeout(() => setCalcDisplay(""), 800);
       }
     } else if (val === "C") {
       setCalcDisplay("");
     } else {
-      if (calcDisplay.length < 8) setCalcDisplay(prev => prev + val);
+      if (calcDisplay.length < 10) setCalcDisplay(prev => prev + val);
+    }
+  };
+
+  const sendMessage = () => {
+    if (message.trim()) {
+      socket.emit('send_message', { text: message, sender: 'me' });
+      setMessage("");
     }
   };
 
@@ -56,28 +63,30 @@ function App() {
         {!isUnlocked ? (
           /* --- CALCULATOR PAGE --- */
           <motion.div 
-            key="calc"
+            key="calculator-page"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ y: -100, opacity: 0 }}
-            transition={{ duration: 0.4 }}
+            exit={{ y: "-100vh", opacity: 0 }}
+            transition={{ duration: 0.5, ease: "easeInOut" }}
             style={styles.container}
           >
             <div style={styles.displayWrapper}>
               <motion.div 
                 key={calcDisplay}
-                initial={{ scale: 0.9, opacity: 0.5 }}
-                animate={{ scale: 1, opacity: 1 }}
+                initial={{ y: 10, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
                 style={styles.display}
               >
                 {calcDisplay || "0"}
               </motion.div>
             </div>
+            
             <div style={styles.grid}>
               {["C", "/", "*", "-", "7", "8", "9", "+", "4", "5", "6", "1", "2", "3", "0", ".", "="].map(btn => (
                 <motion.button 
+                  key={btn}
+                  whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.9, backgroundColor: "#4a5d4e" }}
-                  key={btn} 
                   onClick={() => handlePress(btn)}
                   style={{
                     ...styles.btn,
@@ -94,17 +103,21 @@ function App() {
         ) : (
           /* --- CHAT PAGE --- */
           <motion.div 
-            key="chat"
-            initial={{ y: 50, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ type: "spring", damping: 25, stiffness: 200 }}
+            key="chat-page"
+            initial={{ y: "100vh" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100vh" }}
+            transition={{ type: "spring", damping: 25, stiffness: 120 }}
             style={styles.chatWrapper}
           >
             <div style={styles.chatHeader}>
               <div style={{display: 'flex', alignItems: 'center'}}>
-                <div style={styles.onlineDot} />
-                <span style={{fontWeight: '600', color: '#f5f5f5'}}>Vault Messenger</span>
+                <motion.div 
+                  animate={{ opacity: [0.4, 1, 0.4] }}
+                  transition={{ repeat: Infinity, duration: 2 }}
+                  style={styles.onlineDot} 
+                />
+                <span style={{fontWeight: '600', color: '#f5f5f5', fontSize: '18px'}}>Vault</span>
               </div>
               <button onClick={lockApp} style={styles.exitBtn}>Done</button>
             </div>
@@ -112,12 +125,13 @@ function App() {
             <div style={styles.messageList}>
               {chatLog.map((m, i) => (
                 <motion.div 
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
+                  initial={{ opacity: 0, scale: 0.8, x: -20 }}
+                  animate={{ opacity: 1, scale: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
                   key={i} 
                   style={styles.msgBubble}
                 >
-                  <p style={{margin: 0}}>{m.text}</p>
+                  {m.text}
                 </motion.div>
               ))}
               <div ref={chatEndRef} />
@@ -132,13 +146,9 @@ function App() {
                 onKeyPress={e => e.key === 'Enter' && sendMessage()}
               />
               <motion.button 
+                whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }} 
-                onClick={() => {
-                  if (message.trim()) {
-                    socket.emit('send_message', { text: message, sender: 'me' });
-                    setMessage("");
-                  }
-                }} 
+                onClick={sendMessage} 
                 style={styles.sendBtn}
               >
                 ➔
@@ -152,117 +162,87 @@ function App() {
 }
 
 const styles = {
-  mainContainer: {
-    height: '100dvh',
-    backgroundColor: '#000',
-    overflow: 'hidden'
-  },
+  mainContainer: { height: '100dvh', backgroundColor: '#000', overflow: 'hidden' },
   container: {
     height: '100%',
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'flex-end',
-    padding: '0 20px 40px',
-    boxSizing: 'border-box',
-    backgroundColor: '#1c1c1c', // Charcoal black
+    padding: '0 20px 50px',
+    backgroundColor: '#1c1c1c', // Charcoal
   },
-  displayWrapper: {
-    padding: '0 10px',
-    marginBottom: '20px'
-  },
+  displayWrapper: { padding: '0 10px', marginBottom: '30px' },
   display: {
-    fontSize: '80px',
+    fontSize: '85px',
     textAlign: 'right',
     fontWeight: '200',
-    color: '#dae3dc', // Very light sage
-    fontFamily: 'Helvetica, Arial, sans-serif'
+    color: '#8a9a8e', // Sage
+    fontFamily: 'sans-serif'
   },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(4, 1fr)',
-    gap: '14px',
-  },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px' },
   btn: {
     aspectRatio: '1',
     borderRadius: '50%',
     border: 'none',
     backgroundColor: '#333',
     color: '#fff',
-    fontSize: '28px',
+    fontSize: '30px',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center'
   },
-  longBtn: {
-    gridColumn: 'span 2',
-    aspectRatio: 'auto',
-    borderRadius: '50px',
-    height: 'auto'
-  },
-  sageBtn: { backgroundColor: '#8a9a8e', color: '#1c1c1c' }, // Sage iPhone color
+  longBtn: { gridColumn: 'span 2', aspectRatio: 'auto', borderRadius: '50px', height: 'auto' },
+  sageBtn: { backgroundColor: '#8a9a8e', color: '#1c1c1c' }, 
   darkBtn: { backgroundColor: '#2a2a2a', color: '#8a9a8e' },
   
-  // Chat Styles
-  chatWrapper: { 
-    height: '100%', 
-    display: 'flex', 
-    flexDirection: 'column', 
-    backgroundColor: '#121212' // Deep black for chat
-  },
+  chatWrapper: { height: '100%', display: 'flex', flexDirection: 'column', backgroundColor: '#121212' },
   chatHeader: { 
-    padding: '50px 20px 15px', 
+    padding: '60px 25px 20px', 
     backgroundColor: '#1c1c1c',
     display: 'flex', 
     justifyContent: 'space-between',
     alignItems: 'center',
     borderBottom: '1px solid #2a2a2a'
   },
-  onlineDot: { width: '8px', height: '8px', backgroundColor: '#8a9a8e', borderRadius: '50%', marginRight: '10px' },
-  exitBtn: { color: '#8a9a8e', border: 'none', background: 'none', fontWeight: '600', fontSize: '16px' },
-  
-  messageList: { 
-    flex: 1, 
-    padding: '20px', 
-    overflowY: 'auto',
-    background: 'linear-gradient(to bottom, #121212, #1c1c1c)' 
-  },
+  onlineDot: { width: '10px', height: '10px', backgroundColor: '#8a9a8e', borderRadius: '50%', marginRight: '10px' },
+  exitBtn: { color: '#8a9a8e', background: 'none', border: 'none', fontWeight: 'bold', fontSize: '17px' },
+  messageList: { flex: 1, padding: '25px', overflowY: 'auto' },
   msgBubble: { 
     backgroundColor: '#2a2a2a', 
     color: '#dae3dc',
-    padding: '12px 18px', 
-    borderRadius: '20px', 
+    padding: '14px 20px', 
+    borderRadius: '22px', 
     borderBottomLeftRadius: '4px',
-    marginBottom: '12px', 
-    maxWidth: '75%', 
-    fontSize: '16px',
-    boxShadow: '0 4px 15px rgba(0,0,0,0.3)'
+    marginBottom: '15px', 
+    maxWidth: '80%', 
+    fontSize: '17px',
+    boxShadow: '0 5px 15px rgba(0,0,0,0.4)'
   },
   inputArea: { 
-    padding: '15px 20px 40px', 
+    padding: '20px 20px 50px', 
     backgroundColor: '#1c1c1c',
     display: 'flex',
-    alignItems: 'center',
-    gap: '10px'
+    gap: '12px'
   },
   input: { 
     flex: 1, 
-    padding: '14px 20px', 
-    borderRadius: '25px', 
+    padding: '16px 22px', 
+    borderRadius: '30px', 
     border: 'none', 
     backgroundColor: '#2a2a2a', 
     color: '#fff', 
-    outline: 'none',
-    fontSize: '16px'
+    fontSize: '17px',
+    outline: 'none'
   },
   sendBtn: {
     backgroundColor: '#8a9a8e',
     border: 'none',
-    width: '45px',
-    height: '45px',
+    width: '52px',
+    height: '52px',
     borderRadius: '50%',
     color: '#1c1c1c',
-    fontSize: '20px',
+    fontSize: '22px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center'
