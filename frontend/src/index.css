@@ -1,20 +1,15 @@
-/* Kill all default browser margins and paddings */
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
 html, body, #root {
   margin: 0 !important;
   padding: 0 !important;
-  width: 100vw !important;
-  height: 100dvh !important;
+  width: 100vw;
+  height: 100dvh;
+  /* Use fixed to prevent the 'pull-to-refresh' bounce on iOS */
+  position: fixed; 
   overflow: hidden;
-  background-color: #000; /* Matches your calculator theme */
-  box-sizing: border-box;
-}
-
-/* Prevent accidental scrolling on mobile */
-body {
-  position: fixed;
-  touch-action: none;
-}
-
-* {
-  box-sizing: border-box;
+  background-color: #000;
 }
