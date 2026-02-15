@@ -1,8 +1,20 @@
-body, html, #root {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  width: 100%;
+/* Kill all default browser margins and paddings */
+html, body, #root {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
   overflow: hidden;
-  background-color: #000;
+  background-color: #000; /* Matches your calculator theme */
+  box-sizing: border-box;
+}
+
+/* Prevent accidental scrolling on mobile */
+body {
+  position: fixed;
+  touch-action: none;
+}
+
+* {
+  box-sizing: border-box;
 }
