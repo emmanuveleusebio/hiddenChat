@@ -12,37 +12,38 @@ app.use(express.json());
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-const mongoURI = process.env.MONGO_URI
+const mongoURI = process.env.MONGO_URI 
 
-// 1. Connect to MongoDB (Local or MongoDB Atlas)
-mongoose.connect(mongoURI)
-  .then(() => console.log("DB Connected"))
-  .catch(err => console.log(err));
+mongoose.connect(mongoURI).then(() => console.log("DB Connected"));
 
-// 2. Define Message Schema
 const MessageSchema = new mongoose.Schema({
   text: String,
-  sender: String, // 'me' or 'her'
+  senderId: String, // "9492" (Eusebio) or "9746" (Rahitha)
+  senderName: String,
+  seen: { type: Boolean, default: false },
   timestamp: { type: Date, default: Date.now }
 });
 const Message = mongoose.model('Message', MessageSchema);
 
-// 3. API to get old messages when the app opens
 app.get('/messages', async (req, res) => {
   const messages = await Message.find().sort({ timestamp: 1 });
   res.json(messages);
 });
 
-// 4. Socket.io for Live Updates
+// Mark messages as seen
+app.post('/seen', async (req, res) => {
+  const { userId } = req.body;
+  await Message.updateMany({ senderId: { $ne: userId }, seen: false }, { seen: true });
+  io.emit('messages_seen');
+  res.sendStatus(200);
+});
+
 io.on('connection', (socket) => {
   socket.on('send_message', async (data) => {
-    // Save to Database
-    const newMessage = new Message({ text: data.text, sender: data.sender });
+    const newMessage = new Message(data);
     await newMessage.save();
-
-    // Broadcast to both users
     io.emit('receive_message', newMessage);
   });
 });
 
-server.listen(5000, () => console.log('Server on port 5000'));
+server.listen(5000, () => console.log('Production Server on 5000'));
