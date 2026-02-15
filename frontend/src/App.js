@@ -6,8 +6,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 const socket = io.connect('https://calcsocket.onrender.com');
 
 const USERS = {
-  "9492": { name: "Eusebio", color: "#8a9a8e" },
-  "9746": { name: "Rahitha", color: "#d1b3c4" }
+  "9492": { name: "Eusebio", id: "9492" },
+  "9746": { name: "Rahitha", id: "9746" }
 };
 
 function App() {
@@ -22,19 +22,28 @@ function App() {
   const fetchMessages = () => {
     axios.get('https://calcsocket.onrender.com/messages')
       .then(res => setChatLog(res.data))
-      .catch(err => console.error(err));
+      .catch(err => console.error("History Error:", err));
   };
 
+  const markAsSeen = (userId) => {
+    if (!userId) return;
+    axios.post('https://calcsocket.onrender.com/seen', { userId })
+      .catch(err => console.error("Seen Error:", err));
+  };
+
+  // --- REAL-TIME LISTENERS ---
   useEffect(() => {
     socket.on('receive_message', (msg) => {
       setChatLog(prev => [...prev, msg]);
-      if (isUnlocked && msg.senderId !== currentUser?.id) {
-        axios.post('https://calcsocket.onrender.com/seen', { userId: currentUser.id });
+      
+      // 🔥 ONLY mark as seen if the chat is currently open on my screen
+      if (isUnlocked && currentUser && msg.senderId !== currentUser.id) {
+        markAsSeen(currentUser.id);
       }
     });
 
     socket.on('messages_seen', () => {
-      fetchMessages();
+      fetchMessages(); // Sender gets the ✓✓ update
     });
 
     return () => {
@@ -43,10 +52,11 @@ function App() {
     };
   }, [isUnlocked, currentUser]);
 
+  // Handle unlocking and seeing past messages
   useEffect(() => {
     if (isUnlocked && currentUser) {
       fetchMessages();
-      axios.post('https://calcsocket.onrender.com/seen', { userId: currentUser.id });
+      markAsSeen(currentUser.id);
     }
   }, [isUnlocked, currentUser]);
 
@@ -57,13 +67,17 @@ function App() {
   const handlePress = (val) => {
     if (val === "=") {
       if (USERS[calcDisplay]) {
-        setCurrentUser({ id: calcDisplay, ...USERS[calcDisplay] });
+        setCurrentUser(USERS[calcDisplay]);
         setShowGreeting(true);
-        setTimeout(() => { setShowGreeting(false); setIsUnlocked(true); }, 2200);
+        setTimeout(() => {
+          setShowGreeting(false);
+          setIsUnlocked(true);
+        }, 2200);
       } else {
         try {
           // eslint-disable-next-line no-eval
-          setCalcDisplay(String(eval(calcDisplay)));
+          const result = eval(calcDisplay);
+          setCalcDisplay(String(result));
         } catch {
           setCalcDisplay("Error");
           setTimeout(() => setCalcDisplay(""), 800);
@@ -77,26 +91,29 @@ function App() {
   };
 
   const sendMessage = () => {
-    if (message.trim()) {
-      socket.emit('send_message', { 
-        text: message, 
-        senderId: currentUser.id, 
-        senderName: currentUser.name 
-      });
+    if (message.trim() && currentUser) {
+      const payload = {
+        text: message,
+        senderId: currentUser.id,
+        senderName: currentUser.name,
+        seen: false, // Ensure it's false on send
+        timestamp: new Date()
+      };
+      socket.emit('send_message', payload);
       setMessage("");
     }
   };
 
   return (
-    <div style={styles.appWrapper}>
+    <div style={styles.appViewport}>
       <AnimatePresence mode="wait">
         {!isUnlocked && !showGreeting && (
-          <motion.div key="calc" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ y: -50, opacity: 0 }} style={styles.calcContainer}>
-            <div style={styles.calcCard}>
+          <motion.div key="calc" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 0.95 }} style={styles.calcPage}>
+            <div style={styles.calcContainer}>
               <div style={styles.calcDisplay}>{calcDisplay || "0"}</div>
               <div style={styles.calcGrid}>
                 {["C", "/", "*", "-", "7", "8", "9", "+", "4", "5", "6", "(", "1", "2", "3", ")", "0", ".", "="].map(btn => (
-                  <motion.button key={btn} whileTap={{ scale: 0.9 }} onClick={() => handlePress(btn)}
+                  <motion.button key={btn} whileTap={{ scale: 0.92 }} onClick={() => handlePress(btn)}
                     style={{...styles.calcBtn, ...(btn === "=" ? styles.equalBtn : {}), ...(isNaN(btn) && btn !== "." ? styles.opBtn : {})}}>
                     {btn}
                   </motion.button>
@@ -107,35 +124,50 @@ function App() {
         )}
 
         {showGreeting && (
-          <motion.div key="greet" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} style={styles.greetScreen}>
-            <motion.h2 animate={{ y: [0, -10, 0] }} transition={{ repeat: Infinity, duration: 2 }} style={{ color: '#8a9a8e', fontSize: '28px' }}>
-              Hello, {currentUser.name}
-            </motion.h2>
-            <p style={{ color: '#555' }}>Accessing Private Vault...</p>
+          <motion.div key="greet" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} style={styles.greetPage}>
+            <motion.div animate={{ scale: [1, 1.05, 1] }} transition={{ repeat: Infinity, duration: 2 }}>
+              <h1 style={{ color: '#8a9a8e', fontSize: '32px', marginBottom: '10px' }}>Hello, {currentUser.name}</h1>
+              <div style={styles.syncBar}><motion.div initial={{ width: 0 }} animate={{ width: '100%' }} transition={{ duration: 2 }} style={styles.syncProgress} /></div>
+              <p style={{ color: '#555', fontSize: '14px', marginTop: '10px' }}>Establishing secure vault...</p>
+            </motion.div>
           </motion.div>
         )}
 
         {isUnlocked && (
-          <motion.div key="chat" initial={{ y: "100vh" }} animate={{ y: 0 }} transition={{ type: 'spring', damping: 25 }} style={styles.chatWrapper}>
+          <motion.div key="chat" initial={{ y: "100dvh" }} animate={{ y: 0 }} transition={{ type: 'spring', damping: 25, stiffness: 120 }} style={styles.chatPage}>
             <div style={styles.chatHeader}>
-              <div style={{display: 'flex', alignItems: 'center'}}>
-                <div style={styles.onlineDot} />
-                <span style={styles.headerTitle}>Rahitha & Eusebio</span>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <div style={styles.statusDot} />
+                <span style={styles.headerText}>Rahitha & Eusebio</span>
               </div>
-              <button onClick={() => { setIsUnlocked(false); setCalcDisplay(""); }} style={styles.closeBtn}>Done</button>
+              <button onClick={() => { setIsUnlocked(false); setCalcDisplay(""); }} style={styles.lockBtn}>Done</button>
             </div>
 
             <div style={styles.messageList}>
               {chatLog.map((m, i) => {
                 const isMe = m.senderId === currentUser.id;
                 return (
-                  <div key={i} style={{...styles.msgRow, justifyContent: isMe ? 'flex-end' : 'flex-start'}}>
-                    <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                      style={{ ...styles.bubble, backgroundColor: isMe ? '#8a9a8e' : '#222', color: isMe ? '#000' : '#fff' }}>
+                  <div key={i} style={{ ...styles.msgRow, justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
+                    <motion.div initial={{ opacity: 0, scale: 0.95, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+                      style={{ 
+                        ...styles.bubble, 
+                        backgroundColor: isMe ? '#8a9a8e' : '#1c1c1c', 
+                        color: isMe ? '#000' : '#fff',
+                        borderBottomRightRadius: isMe ? '4px' : '20px',
+                        borderBottomLeftRadius: isMe ? '20px' : '4px'
+                      }}>
                       {m.text}
-                      <div style={styles.meta}>
-                        {new Date(m.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                        {isMe && <span style={{ marginLeft: 5, color: m.seen ? '#4ade80' : '#888' }}>{m.seen ? "✓✓" : "✓"}</span>}
+                      <div style={{ ...styles.meta, color: isMe ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.4)' }}>
+                        {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {isMe && (
+                          <span style={{ 
+                            marginLeft: '6px', 
+                            fontWeight: 'bold', 
+                            color: m.seen ? '#004d40' : 'rgba(0,0,0,0.3)' 
+                          }}>
+                            {m.seen ? "✓✓" : "✓"}
+                          </span>
+                        )}
                       </div>
                     </motion.div>
                   </div>
@@ -156,27 +188,29 @@ function App() {
 }
 
 const styles = {
-  appWrapper: {  backgroundColor: '#000', overflow: 'hidden' },
-  calcContainer: { height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at top, #1a1a1a 0%, #000 100%)' },
-  calcCard: { width: '100%', maxWidth: '400px', padding: '20px' },
-  calcDisplay: { fontSize: '75px', color: '#8a9a8e', textAlign: 'right', padding: '40px 10px', fontWeight: '200' },
-  calcGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' },
-  calcBtn: { aspectRatio: '1', borderRadius: '20px', border: 'none', backgroundColor: '#1a1a1a', color: '#fff', fontSize: '24px', cursor: 'pointer' },
-  opBtn: { backgroundColor: '#2a2a2a', color: '#8a9a8e' },
-  equalBtn: { backgroundColor: '#8a9a8e', color: '#121212' },
-  greetScreen: { height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' },
-  chatWrapper: { height: '100%', display: 'flex', flexDirection: 'column', backgroundColor: '#000' },
-  chatHeader: { padding: '60px 20px 20px', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1a1a1a', backgroundColor: '#0d0d0d' },
-  onlineDot: { width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#4ade80', marginRight: '10px' },
-  headerTitle: { color: '#fff', fontWeight: '600' },
-  closeBtn: { background: 'none', border: 'none', color: '#8a9a8e', fontWeight: 'bold' },
+  appViewport: { height: '100dvh', width: '100vw', backgroundColor: '#000', overflow: 'hidden', margin: 0, padding: 0 },
+  calcPage: { height: '100%', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at center, #1a1a1a 0%, #000 100%)' },
+  calcContainer: { width: '100%', maxWidth: '380px', padding: '20px' },
+  calcDisplay: { fontSize: '70px', color: '#8a9a8e', textAlign: 'right', padding: '40px 10px', fontWeight: '200', minHeight: '140px', wordBreak: 'break-all' },
+  calcGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' },
+  calcBtn: { aspectRatio: '1', borderRadius: '18px', border: 'none', backgroundColor: '#111', color: '#fff', fontSize: '24px', cursor: 'pointer', boxShadow: '0 4px 10px rgba(0,0,0,0.5)' },
+  opBtn: { backgroundColor: '#222', color: '#8a9a8e' },
+  equalBtn: { backgroundColor: '#8a9a8e', color: '#000', fontWeight: 'bold' },
+  greetPage: { height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000', textAlign: 'center' },
+  syncBar: { width: '200px', height: '3px', backgroundColor: '#222', borderRadius: '10px', overflow: 'hidden', marginTop: '10px' },
+  syncProgress: { height: '100%', backgroundColor: '#8a9a8e' },
+  chatPage: { height: '100%', display: 'flex', flexDirection: 'column', backgroundColor: '#050505' },
+  chatHeader: { padding: '60px 24px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #111', backgroundColor: '#0a0a0a' },
+  statusDot: { width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4ade80', marginRight: '10px', boxShadow: '0 0 10px #4ade80' },
+  headerText: { color: '#fff', fontWeight: '600', fontSize: '18px' },
+  lockBtn: { background: 'none', border: 'none', color: '#8a9a8e', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer' },
   messageList: { flex: 1, padding: '20px', overflowY: 'auto' },
-  msgRow: { display: 'flex', marginBottom: '15px' },
-  bubble: { padding: '12px 18px', borderRadius: '22px', maxWidth: '80%', fontSize: '16px' },
-  meta: { fontSize: '10px', marginTop: '4px', textAlign: 'right', opacity: 0.6 },
-  inputArea: { padding: '20px 20px 45px', display: 'flex', gap: '12px', backgroundColor: '#0d0d0d' },
-  input: { flex: 1, padding: '15px 20px', borderRadius: '25px', border: 'none', backgroundColor: '#1c1c1c', color: '#fff', outline: 'none' },
-  sendBtn: { width: '50px', height: '50px', borderRadius: '50%', border: 'none', backgroundColor: '#8a9a8e', color: '#000' }
+  msgRow: { display: 'flex', marginBottom: '14px', width: '100%' },
+  bubble: { padding: '12px 18px', borderRadius: '22px', maxWidth: '80%', fontSize: '16px', position: 'relative', boxShadow: '0 4px 15px rgba(0,0,0,0.3)' },
+  meta: { fontSize: '10px', marginTop: '4px', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' },
+  inputArea: { padding: '15px 20px 45px', display: 'flex', gap: '12px', backgroundColor: '#0a0a0a', borderTop: '1px solid #111' },
+  input: { flex: 1, padding: '14px 20px', borderRadius: '30px', border: 'none', backgroundColor: '#1a1a1a', color: '#fff', outline: 'none', fontSize: '16px' },
+  sendBtn: { width: '48px', height: '48px', borderRadius: '50%', border: 'none', backgroundColor: '#8a9a8e', color: '#000', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }
 };
 
 export default App;
