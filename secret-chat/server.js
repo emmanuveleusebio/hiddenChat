@@ -12,32 +12,36 @@ app.use(express.json());
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-const mongoURI = process.env.MONGO_URI 
+// MongoDB Connection
+const mongoURI = process.env.MONGO_URI; 
+mongoose.connect(mongoURI).then(() => console.log("Vault DB Connected")).catch(err => console.log(err));
 
-mongoose.connect(mongoURI).then(() => console.log("DB Connected"));
-
+// Production Schema
 const MessageSchema = new mongoose.Schema({
   text: String,
-  senderId: String, // "9492" (Eusebio) or "9746" (Rahitha)
+  senderId: String, 
   senderName: String,
   seen: { type: Boolean, default: false },
   timestamp: { type: Date, default: Date.now }
 });
 const Message = mongoose.model('Message', MessageSchema);
 
+// API: Get history
 app.get('/messages', async (req, res) => {
   const messages = await Message.find().sort({ timestamp: 1 });
   res.json(messages);
 });
 
-// Mark messages as seen
+// API: Update Seen Status
 app.post('/seen', async (req, res) => {
   const { userId } = req.body;
-  await Message.updateMany({ senderId: { $ne: userId }, seen: false }, { seen: true });
-  io.emit('messages_seen');
+  // Mark messages NOT sent by this user as seen
+  await Message.updateMany({ senderId: { $ne: userId }, seen: false }, { $set: { seen: true } });
+  io.emit('messages_seen'); // Notify other device to update checkmarks
   res.sendStatus(200);
 });
 
+// Socket logic
 io.on('connection', (socket) => {
   socket.on('send_message', async (data) => {
     const newMessage = new Message(data);
@@ -46,4 +50,5 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(5000, () => console.log('Production Server on 5000'));
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => console.log(`Secure Server on ${PORT}`));
