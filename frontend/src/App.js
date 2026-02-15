@@ -17,25 +17,11 @@ function App() {
   const [message, setMessage] = useState("");
   const [chatLog, setChatLog] = useState([]);
   const [showGreeting, setShowGreeting] = useState(false);
-  const [viewportHeight, setViewportHeight] = useState('100dvh');
   
   const chatEndRef = useRef(null);
   const lastTap = useRef(0);
 
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.visualViewport) {
-        setViewportHeight(`${window.visualViewport.height}px`);
-        setTimeout(() => {
-          chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-        }, 100);
-      }
-    };
-
-    window.visualViewport?.addEventListener('resize', handleResize);
-    return () => window.visualViewport?.removeEventListener('resize', handleResize);
-  }, []);
-
+  // --- API HELPERS ---
   const fetchMessages = () => {
     axios.get('https://calcsocket.onrender.com/messages')
       .then(res => setChatLog(res.data))
@@ -54,12 +40,14 @@ function App() {
     setCurrentUser(null);
   };
 
+  // --- PANIC MODE: DOUBLE TAP ---
   const handleDoubleTap = () => {
     const now = Date.now();
     if (now - lastTap.current < 300) lockApp();
     else lastTap.current = now;
   };
 
+  // --- REAL-TIME SYNC ---
   useEffect(() => {
     socket.on('receive_message', (msg) => {
       setChatLog(prev => [...prev, msg]);
@@ -67,7 +55,9 @@ function App() {
         markAsSeen(currentUser.id);
       }
     });
+
     socket.on('messages_seen', () => fetchMessages());
+
     return () => {
       socket.off('receive_message');
       socket.off('messages_seen');
@@ -81,6 +71,11 @@ function App() {
     }
   }, [isUnlocked, currentUser]);
 
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatLog]);
+
+  // --- CALCULATOR ENGINE ---
   const handlePress = (val) => {
     if (val === "=") {
       if (USERS[calcDisplay]) {
@@ -89,6 +84,7 @@ function App() {
         setTimeout(() => { setShowGreeting(false); setIsUnlocked(true); }, 2200);
       } else {
         try {
+          // Normal math functionality for stealth
           // eslint-disable-next-line no-eval
           setCalcDisplay(String(eval(calcDisplay)));
         } catch {
@@ -116,8 +112,10 @@ function App() {
   };
 
   return (
-    <div style={{...styles.appViewport, height: viewportHeight}}>
+    <div style={styles.appViewport}>
       <AnimatePresence mode="wait">
+        
+        {/* CALCULATOR PAGE */}
         {!isUnlocked && !showGreeting && (
           <motion.div key="calc" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 0.95 }} style={styles.calcPage}>
             <div style={styles.calcCard}>
@@ -134,15 +132,19 @@ function App() {
           </motion.div>
         )}
 
+        {/* GREETING SCREEN */}
         {showGreeting && (
           <motion.div key="greet" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} style={styles.greetPage}>
-            <h1 style={{ color: '#8a9a8e', fontSize: '28px' }}>Hello, {currentUser.name}</h1>
-            <p style={{ color: '#444' }}>Vault secured.</p>
+            <motion.div initial={{ y: 20 }} animate={{ y: 0 }}>
+              <h1 style={{ color: '#8a9a8e', fontSize: '28px', margin: 0 }}>Hello, {currentUser.name}</h1>
+              <p style={{ color: '#444', marginTop: '10px' }}>Secure tunnel established...</p>
+            </motion.div>
           </motion.div>
         )}
 
+        {/* CHAT PAGE */}
         {isUnlocked && (
-          <motion.div key="chat" initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ opacity: 0 }} 
+          <motion.div key="chat" initial={{ y: "100dvh" }} animate={{ y: 0 }} exit={{ opacity: 0 }} 
             transition={{ type: 'spring', damping: 25, stiffness: 150 }} 
             style={styles.chatPage} onClick={handleDoubleTap}>
             
@@ -173,13 +175,8 @@ function App() {
             </div>
 
             <div style={styles.inputArea} onClick={(e) => e.stopPropagation()}>
-              <input 
-                style={styles.input} 
-                value={message} 
-                onChange={e => setMessage(e.target.value)} 
-                placeholder="Message..." 
-                onKeyPress={e => e.key === 'Enter' && sendMessage()} 
-              />
+              <input style={styles.input} value={message} onChange={e => setMessage(e.target.value)} 
+                placeholder="Message..." onKeyPress={e => e.key === 'Enter' && sendMessage()} />
               <button onClick={sendMessage} style={styles.sendBtn}>➔</button>
             </div>
           </motion.div>
@@ -190,58 +187,26 @@ function App() {
 }
 
 const styles = {
-  appViewport: { 
-    backgroundColor: '#000', 
-    overflow: 'scroll', 
-    display: 'flex', 
-    flexDirection: 'column',
-    position: 'fixed', // Keeps the app from scrolling away on mobile
-    top: 0,
-    left: 0,
-    right: 0,
-  },
-  calcPage: { display: 'flex', alignItems: 'center', justifyContent: 'center',height: '100%',  },
+  appViewport: {  backgroundColor: '#000', height:'100%' },
+  calcPage: {  display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at center, #1a1a1a 0%, #000 100%)' },
   calcCard: { width: '100%', maxWidth: '400px', padding: '20px' },
-  calcDisplay: { fontSize: '75px', color: '#8a9a8e', textAlign: 'right', padding: '20px 10px', fontWeight: '200' },
+  calcDisplay: { fontSize: '75px', color: '#8a9a8e', textAlign: 'right', padding: '40px 10px', fontWeight: '200', minHeight: '160px' },
   calcGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' },
-  calcBtn: { aspectRatio: '1', borderRadius: '15px', border: 'none', backgroundColor: '#111', color: '#fff', fontSize: '24px' },
+  calcBtn: { aspectRatio: '1', borderRadius: '18px', border: 'none', backgroundColor: '#111', color: '#fff', fontSize: '26px' },
   opBtn: { backgroundColor: '#222', color: '#8a9a8e' },
   equalBtn: { backgroundColor: '#8a9a8e', color: '#000', fontWeight: 'bold' },
-  greetPage: { height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' },
-  chatPage: { height: '100%', display: 'flex', flexDirection: 'column', backgroundColor: '#050505', flex: 1, overflow: 'hidden' },
-  chatHeader: { 
-    padding: 'env(safe-area-inset-top, 20px) 24px 15px', // Adjusted for modern notches
-    display: 'flex', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    borderBottom: '1px solid #111', 
-    backgroundColor: '#0a0a0a',
-    flexShrink: 0 // Prevents header from collapsing
-  },
-  statusDot: { width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4ade80', marginRight: '10px' },
+  greetPage: { height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' },
+  chatPage: { height: '100%', display: 'flex', flexDirection: 'column', backgroundColor: '#050505' },
+  chatHeader: { padding: '60px 24px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #111', backgroundColor: '#0a0a0a' },
+  statusDot: { width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4ade80', marginRight: '10px', boxShadow: '0 0 8px #4ade80' },
   lockBtn: { background: 'none', border: 'none', color: '#8a9a8e', fontWeight: 'bold', fontSize: '16px' },
-  messageList: { 
-    flex: 1, 
-    padding: '20px', 
-    overflowY: 'auto', 
-    WebkitOverflowScrolling: 'touch', // Smooth momentum scrolling for iOS
-    display: 'flex',
-    flexDirection: 'column'
-  },
-  msgRow: { display: 'flex', marginBottom: '14px', width: '100%', flexShrink: 0 },
-  bubble: { padding: '12px 18px', borderRadius: '22px', maxWidth: '85%', fontSize: '16px' },
+  messageList: { flex: 1, padding: '20px', overflowY: 'auto' },
+  msgRow: { display: 'flex', marginBottom: '14px', width: '100%' },
+  bubble: { padding: '12px 18px', borderRadius: '22px', maxWidth: '80%', fontSize: '17px' },
   meta: { fontSize: '10px', marginTop: '4px', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' },
-  inputArea: { 
-    padding: '12px 15px', 
-    paddingBottom: 'calc(12px + env(safe-area-inset-bottom))', 
-    display: 'flex', 
-    gap: '10px', 
-    backgroundColor: '#0a0a0a', 
-    borderTop: '1px solid #111',
-    flexShrink: 0 // Prevents input from collapsing
-  },
-  input: { flex: 1, padding: '12px 18px', borderRadius: '25px', border: 'none', backgroundColor: '#1a1a1a', color: '#fff', fontSize: '16px', outline: 'none' },
-  sendBtn: { width: '45px', height: '45px', borderRadius: '50%', border: 'none', backgroundColor: '#8a9a8e', color: '#000' }
+  inputArea: { padding: '15px 20px', paddingBottom: 'calc(15px + env(safe-area-inset-bottom))', display: 'flex', gap: '12px', backgroundColor: '#0a0a0a' },
+  input: { flex: 1, padding: '14px 20px', borderRadius: '30px', border: 'none', backgroundColor: '#1a1a1a', color: '#fff', fontSize: '16px', outline: 'none' },
+  sendBtn: { width: '48px', height: '48px', borderRadius: '50%', border: 'none', backgroundColor: '#8a9a8e', color: '#000', fontSize: '20px' }
 };
 
 export default App;
