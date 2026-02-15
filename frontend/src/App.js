@@ -156,7 +156,7 @@ function App() {
 }
 
 const styles = {
-  appWrapper: { height: '100dvh', width: '100vw', backgroundColor: '#000', overflow: 'hidden' },
+  appWrapper: {  backgroundColor: '#000', overflow: 'hidden' },
   calcContainer: { height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at top, #1a1a1a 0%, #000 100%)' },
   calcCard: { width: '100%', maxWidth: '400px', padding: '20px' },
   calcDisplay: { fontSize: '75px', color: '#8a9a8e', textAlign: 'right', padding: '40px 10px', fontWeight: '200' },
