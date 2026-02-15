@@ -193,6 +193,7 @@ const styles = {
   appViewport: { 
     backgroundColor: '#000', 
     overflow: 'scroll', 
+    display: 'flex', 
     flexDirection: 'column',
     position: 'fixed', // Keeps the app from scrolling away on mobile
     top: 0,
