@@ -15,27 +15,39 @@ function App() {
   const [message, setMessage] = useState("");
   const [chatLog, setChatLog] = useState([]);
   const [showGreeting, setShowGreeting] = useState(false);
-  const [vh, setVh] = useState('100dvh');
+  const [vh, setVh] = useState('100vh');
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   const chatEndRef = useRef(null);
   const lastTap = useRef(0);
 
-  // 🔥 KEYBOARD & VIEWPORT LOGIC
+  // 🔥 FIXED KEYBOARD & VIEWPORT LOGIC
   useEffect(() => {
     const updateViewport = () => {
       if (window.visualViewport) {
-        setVh(`${window.visualViewport.height}px`);
-        // Check if keyboard is likely open (viewport height significantly less than screen height)
-        setKeyboardOpen(window.visualViewport.height < window.innerHeight * 0.85);
+        const height = window.visualViewport.height;
+        setVh(`${height}px`);
         
-        if (window.visualViewport.height < window.innerHeight) {
-          setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-        }
+        // Detect keyboard by comparing visual viewport to window height
+        const keyboardIsOpen = height < window.innerHeight * 0.75;
+        setKeyboardOpen(keyboardIsOpen);
       }
     };
-    window.visualViewport?.addEventListener('resize', updateViewport);
-    return () => window.visualViewport?.removeEventListener('resize', updateViewport);
+    
+    // Initial update
+    updateViewport();
+    
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', updateViewport);
+      window.visualViewport.addEventListener('scroll', updateViewport);
+    }
+    
+    return () => {
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', updateViewport);
+        window.visualViewport.removeEventListener('scroll', updateViewport);
+      }
+    };
   }, []);
 
   const fetchMessages = () => axios.get(`${API_BASE}/messages`).then(res => setChatLog(res.data));
@@ -54,7 +66,14 @@ function App() {
     if (isUnlocked && currentUser) { fetchMessages(); markAsSeen(currentUser.id); }
   }, [isUnlocked, currentUser]);
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatLog]);
+  useEffect(() => { 
+    if (chatEndRef.current) {
+      // Smooth scroll to bottom when new messages arrive
+      setTimeout(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      }, 100);
+    }
+  }, [chatLog]);
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -134,7 +153,7 @@ function App() {
               <button onClick={() => setIsUnlocked(false)} style={styles.lockBtn}>Done</button>
             </div>
             
-            <div style={{ ...styles.messageList, paddingBottom: keyboardOpen ? '20px' : '100px' }}>
+            <div style={styles.messageList}>
               {chatLog.map((m, i) => {
                 const isMe = m.senderId === currentUser.id;
                 return (
@@ -147,13 +166,10 @@ function App() {
                   </div>
                 );
               })}
-              <div ref={chatEndRef} style={{ height: '20px' }} />
+              <div ref={chatEndRef} style={{ height: '1px' }} />
             </div>
 
-            <div style={{ 
-              ...styles.inputArea, 
-              paddingBottom: keyboardOpen ? '10px' : 'calc(10px + env(safe-area-inset-bottom))' 
-            }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.inputArea} onClick={(e) => e.stopPropagation()}>
               <input type="file" id="imgInput" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
               <button onClick={() => document.getElementById('imgInput').click()} style={styles.imgBtn}>📷</button>
               <input style={styles.input} value={message} onChange={e => setMessage(e.target.value)} placeholder="Message..." onKeyPress={e => e.key === 'Enter' && sendMessage()} />

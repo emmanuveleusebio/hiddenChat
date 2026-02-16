@@ -5,7 +5,7 @@ export const styles = {
     overflow: 'hidden', 
     display: 'flex', 
     flexDirection: 'column',
-    position: 'fixed', // Prevents body scrolling
+    position: 'relative', // Changed from fixed
     top: 0,
     left: 0
   },
@@ -31,7 +31,8 @@ export const styles = {
     display: 'flex', 
     flexDirection: 'column', 
     backgroundColor: '#050505',
-    overflow: 'hidden'
+    overflow: 'hidden',
+    position: 'relative' // Ensure proper stacking
   },
   chatHeader: { 
     padding: '60px 24px 15px', 
@@ -40,7 +41,8 @@ export const styles = {
     alignItems: 'center', 
     borderBottom: '1px solid #111', 
     backgroundColor: '#0a0a0a',
-    zIndex: 10
+    zIndex: 10,
+    flexShrink: 0 // Prevent header from shrinking
   },
   statusDot: { 
     width: '8px', height: '8px', borderRadius: '50%', 
@@ -50,29 +52,55 @@ export const styles = {
   messageList: { 
     flex: 1, 
     padding: '20px', 
+    paddingBottom: '10px', // Reduced padding
     overflowY: 'auto', 
+    overflowX: 'hidden',
     display: 'flex', 
     flexDirection: 'column',
-    WebkitOverflowScrolling: 'touch' 
+    WebkitOverflowScrolling: 'touch',
+    minHeight: 0 // Important: allows flex child to shrink below content size
   },
   msgRow: { display: 'flex', marginBottom: '14px', width: '100%' },
   bubble: { padding: '12px 18px', borderRadius: '22px', maxWidth: '85%', fontSize: '16px' },
   
-  // 🔥 Input Area - No extra gaps
+  // 🔥 Fixed Input Area - sticks to bottom of viewport
   inputArea: { 
     padding: '10px 15px', 
+    paddingBottom: 'max(10px, env(safe-area-inset-bottom))', // Respect safe area
     display: 'flex', 
     gap: '10px', 
     backgroundColor: '#0a0a0a', 
     borderTop: '1px solid #111', 
-    alignItems: 'center'
+    alignItems: 'center',
+    flexShrink: 0, // Prevent input area from shrinking
+    zIndex: 10
   },
-  imgBtn: { background: 'none', border: 'none', fontSize: '22px', color: '#fff' },
+  imgBtn: { background: 'none', border: 'none', fontSize: '22px', color: '#fff', flexShrink: 0 },
   input: { 
-    flex: 1, padding: '12px 18px', borderRadius: '25px', 
-    border: 'none', backgroundColor: '#1a1a1a', color: '#fff', 
-    fontSize: '16px', outline: 'none' 
+    flex: 1, 
+    padding: '12px 18px', 
+    borderRadius: '25px', 
+    border: 'none', 
+    backgroundColor: '#1a1a1a', 
+    color: '#fff', 
+    fontSize: '16px', 
+    outline: 'none',
+    minWidth: 0 // Allows flex child to shrink
   },
-  sendBtn: { width: '45px', height: '45px', borderRadius: '50%', border: 'none', backgroundColor: '#8a9a8e' },
-  downloadLink: { display: 'block', fontSize: '11px', textDecoration: 'none', marginTop: '8px', textAlign: 'center', fontWeight: 'bold' }
+  sendBtn: { 
+    width: '45px', 
+    height: '45px', 
+    borderRadius: '50%', 
+    border: 'none', 
+    backgroundColor: '#8a9a8e',
+    flexShrink: 0 
+  },
+  downloadLink: { 
+    display: 'block', 
+    fontSize: '11px', 
+    textDecoration: 'none', 
+    marginTop: '8px', 
+    textAlign: 'center', 
+    fontWeight: 'bold' 
+  }
 };
