@@ -1,15 +1,16 @@
-* {
-  box-sizing: border-box;
-  -webkit-tap-highlight-color: transparent;
-}
-
+/* Kill all default browser margins and paddings */
 html, body, #root {
   margin: 0 !important;
   padding: 0 !important;
-  width: 100vw;
-  height: 100dvh;
-  /* Use fixed to prevent the 'pull-to-refresh' bounce on iOS */
-  position: fixed; 
-  overflow: hidden;
+  /* 🔥 This is the magic for iOS */
+  min-height: -webkit-fill-available;
+box-sizing: border-box;
   background-color: #000;
+}
+
+/* Prevent accidental scrolling on mobile */
+
+
+* {
+  box-sizing: border-box;
 }
