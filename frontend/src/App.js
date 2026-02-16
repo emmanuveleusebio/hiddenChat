@@ -4,10 +4,8 @@ import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { styles } from './styles';
 
-// Toggle between local and production
 const API_BASE = window.location.hostname === "localhost" ? "http://localhost:5000" : "https://calcsocket.onrender.com";
 const socket = io.connect(API_BASE);
-
 const USERS = { "9492": { name: "Eusebio", id: "9492" }, "9746": { name: "Rahitha", id: "9746" } };
 
 function App() {
@@ -18,19 +16,26 @@ function App() {
   const [chatLog, setChatLog] = useState([]);
   const [showGreeting, setShowGreeting] = useState(false);
   const [vh, setVh] = useState('100dvh');
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   const chatEndRef = useRef(null);
   const lastTap = useRef(0);
 
+  // 🔥 KEYBOARD & VIEWPORT LOGIC
   useEffect(() => {
-    const updateHeight = () => {
+    const updateViewport = () => {
       if (window.visualViewport) {
         setVh(`${window.visualViewport.height}px`);
-        setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 150);
+        // Check if keyboard is likely open (viewport height significantly less than screen height)
+        setKeyboardOpen(window.visualViewport.height < window.innerHeight * 0.85);
+        
+        if (window.visualViewport.height < window.innerHeight) {
+          setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+        }
       }
     };
-    window.visualViewport?.addEventListener('resize', updateHeight);
-    return () => window.visualViewport?.removeEventListener('resize', updateHeight);
+    window.visualViewport?.addEventListener('resize', updateViewport);
+    return () => window.visualViewport?.removeEventListener('resize', updateViewport);
   }, []);
 
   const fetchMessages = () => axios.get(`${API_BASE}/messages`).then(res => setChatLog(res.data));
@@ -51,11 +56,9 @@ function App() {
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatLog]);
 
-  // 🔥 POWERFUL IMAGE COMPRESSOR
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.readAsDataURL(file);
     reader.onload = (event) => {
@@ -63,24 +66,14 @@ function App() {
       img.src = event.target.result;
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 800; // Optimize for mobile screens
+        const MAX_WIDTH = 800;
         const scaleSize = MAX_WIDTH / img.width;
         canvas.width = MAX_WIDTH;
         canvas.height = img.height * scaleSize;
-
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7); // 70% quality
-        
-        socket.emit('send_message', { 
-          text: "", 
-          image: compressedBase64, 
-          senderId: currentUser.id, 
-          senderName: currentUser.name,
-          timestamp: new Date()
-        });
-        e.target.value = ""; // Reset input
+        socket.emit('send_message', { text: "", image: canvas.toDataURL('image/jpeg', 0.7), senderId: currentUser.id, senderName: currentUser.name, timestamp: new Date() });
+        e.target.value = "";
       };
     };
   };
@@ -98,6 +91,13 @@ function App() {
     else setCalcDisplay(prev => prev === "Error" ? val : prev + val);
   };
 
+  const sendMessage = () => {
+    if (message.trim()) {
+      socket.emit('send_message', { text: message, image: null, senderId: currentUser.id, senderName: currentUser.name, timestamp: new Date() });
+      setMessage("");
+    }
+  };
+
   return (
     <div style={{ ...styles.appViewport, height: vh }}>
       <AnimatePresence mode="wait">
@@ -107,10 +107,7 @@ function App() {
               <div style={styles.calcDisplay}>{calcDisplay || "0"}</div>
               <div style={styles.calcGrid}>
                 {["C", "/", "*", "-", "7", "8", "9", "+", "4", "5", "6", "(", "1", "2", "3", ")", "0", ".", "="].map(btn => (
-                  <motion.button key={btn} whileTap={{ scale: 0.9 }} onClick={() => handlePress(btn)}
-                    style={{...styles.calcBtn, ...(btn === "=" ? styles.equalBtn : {}), ...(isNaN(btn) && btn !== "." ? styles.opBtn : {})}}>
-                    {btn}
-                  </motion.button>
+                  <motion.button key={btn} whileTap={{ scale: 0.9 }} onClick={() => handlePress(btn)} style={{...styles.calcBtn, ...(btn === "=" ? styles.equalBtn : {}), ...(isNaN(btn) && btn !== "." ? styles.opBtn : {})}}>{btn}</motion.button>
                 ))}
               </div>
             </div>
@@ -137,24 +134,15 @@ function App() {
               <button onClick={() => setIsUnlocked(false)} style={styles.lockBtn}>Done</button>
             </div>
             
-            <div style={styles.messageList}>
+            <div style={{ ...styles.messageList, paddingBottom: keyboardOpen ? '20px' : '100px' }}>
               {chatLog.map((m, i) => {
                 const isMe = m.senderId === currentUser.id;
                 return (
                   <div key={i} style={{ ...styles.msgRow, justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
                     <div style={{ ...styles.bubble, backgroundColor: isMe ? '#8a9a8e' : '#1a1a1a', color: isMe ? '#000' : '#fff' }}>
-                      {/* 🔥 IMAGE RENDERING LOGIC */}
-                      {m.image && (
-                        <div style={{ marginBottom: '8px' }}>
-                          <img src={m.image} alt="vault" style={{ maxWidth: '100%', borderRadius: '12px', display: 'block' }} />
-                          <a href={m.image} download="vault_img.png" style={{ ...styles.downloadLink, color: isMe ? '#000' : '#8a9a8e' }}>Download Image</a>
-                        </div>
-                      )}
+                      {m.image && <><img src={m.image} alt="v" style={{ maxWidth: '100%', borderRadius: '12px' }} /><a href={m.image} download="v.png" style={{ ...styles.downloadLink, color: isMe ? '#000' : '#8a9a8e' }}>Download Image</a></>}
                       {m.text && <div style={{ wordBreak: 'break-word' }}>{m.text}</div>}
-                      <div style={{ fontSize: '10px', marginTop: '4px', textAlign: 'right', opacity: 0.5 }}>
-                        {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        {isMe && <span style={{ marginLeft: 5 }}>{m.seen ? "✓✓" : "✓"}</span>}
-                      </div>
+                      <div style={{ fontSize: '10px', marginTop: '4px', textAlign: 'right', opacity: 0.5 }}>{new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{isMe && <span style={{ marginLeft: 5 }}>{m.seen ? "✓✓" : "✓"}</span>}</div>
                     </div>
                   </div>
                 );
@@ -162,13 +150,14 @@ function App() {
               <div ref={chatEndRef} style={{ height: '20px' }} />
             </div>
 
-            <div style={styles.inputArea} onClick={(e) => e.stopPropagation()}>
+            <div style={{ 
+              ...styles.inputArea, 
+              paddingBottom: keyboardOpen ? '10px' : 'calc(10px + env(safe-area-inset-bottom))' 
+            }} onClick={(e) => e.stopPropagation()}>
               <input type="file" id="imgInput" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
               <button onClick={() => document.getElementById('imgInput').click()} style={styles.imgBtn}>📷</button>
-              
-              <input style={styles.input} value={message} onChange={e => setMessage(e.target.value)} 
-                placeholder="Message..." onKeyPress={e => e.key === 'Enter' && socket.emit('send_message', { text: message, image: null, senderId: currentUser.id, senderName: currentUser.name, timestamp: new Date() }) || setMessage("")} />
-              <button onClick={() => { socket.emit('send_message', { text: message, image: null, senderId: currentUser.id, senderName: currentUser.name, timestamp: new Date() }); setMessage(""); }} style={styles.sendBtn}>➔</button>
+              <input style={styles.input} value={message} onChange={e => setMessage(e.target.value)} placeholder="Message..." onKeyPress={e => e.key === 'Enter' && sendMessage()} />
+              <button onClick={sendMessage} style={styles.sendBtn}>➔</button>
             </div>
           </motion.div>
         )}
