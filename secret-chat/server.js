@@ -7,18 +7,27 @@ const cors = require('cors');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+
+// Increase limits for large Base64 strings
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
 
-// MongoDB Connection
+// 🔥 CRITICAL: Increase Socket.io buffer to handle image data
+const io = new Server(server, { 
+  cors: { origin: "*" },
+  maxHttpBufferSize: 1e8 // 100MB
+});
+
 const mongoURI = process.env.MONGO_URI; 
-mongoose.connect(mongoURI).then(() => console.log("Vault DB Connected")).catch(err => console.log(err));
+mongoose.connect(mongoURI)
+  .then(() => console.log("Vault DB Connected"))
+  .catch(err => console.error("DB Error:", err));
 
-// Production Schema
 const MessageSchema = new mongoose.Schema({
   text: String,
+  image: String, // Base64 string
   senderId: String, 
   senderName: String,
   seen: { type: Boolean, default: false },
@@ -26,27 +35,47 @@ const MessageSchema = new mongoose.Schema({
 });
 const Message = mongoose.model('Message', MessageSchema);
 
-// API: Get history
 app.get('/messages', async (req, res) => {
-  const messages = await Message.find().sort({ timestamp: 1 });
-  res.json(messages);
+  try {
+    const messages = await Message.find().sort({ timestamp: -1 }).limit(20).exec();
+    res.json(messages.reverse()); 
+  } catch (err) {
+    res.status(500).json(err);
+  }
 });
 
-// API: Update Seen Status
 app.post('/seen', async (req, res) => {
   const { userId } = req.body;
-  // Mark messages NOT sent by this user as seen
-  await Message.updateMany({ senderId: { $ne: userId }, seen: false }, { $set: { seen: true } });
-  io.emit('messages_seen'); // Notify other device to update checkmarks
-  res.sendStatus(200);
+  try {
+    const result = await Message.updateMany(
+      { senderId: { $ne: userId }, seen: false }, 
+      { $set: { seen: true } }
+    );
+    if (result.modifiedCount > 0) io.emit('messages_seen');
+    res.sendStatus(200);
+  } catch (err) {
+    res.status(500).json(err);
+  }
 });
 
-// Socket logic
 io.on('connection', (socket) => {
+  console.log("User connected:", socket.id);
+
   socket.on('send_message', async (data) => {
-    const newMessage = new Message(data);
-    await newMessage.save();
-    io.emit('receive_message', newMessage);
+    try {
+      const newMessage = new Message({
+          text: data.text,
+          image: data.image, 
+          senderId: data.senderId,
+          senderName: data.senderName,
+          timestamp: new Date(),
+          seen: false 
+      });
+      await newMessage.save();
+      io.emit('receive_message', newMessage);
+    } catch (err) {
+      console.error("Save Error:", err);
+    }
   });
 });
 

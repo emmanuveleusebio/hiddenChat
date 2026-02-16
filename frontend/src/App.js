@@ -4,7 +4,10 @@ import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { styles } from './styles';
 
-const socket = io.connect('https://calcsocket.onrender.com');
+// Toggle between local and production
+const API_BASE = window.location.hostname === "localhost" ? "http://localhost:5000" : "https://calcsocket.onrender.com";
+const socket = io.connect(API_BASE);
+
 const USERS = { "9492": { name: "Eusebio", id: "9492" }, "9746": { name: "Rahitha", id: "9746" } };
 
 function App() {
@@ -19,23 +22,19 @@ function App() {
   const chatEndRef = useRef(null);
   const lastTap = useRef(0);
 
-  // 🔥 KEYBOARD FIX: Adjusts viewport when keyboard opens
   useEffect(() => {
     const updateHeight = () => {
       if (window.visualViewport) {
         setVh(`${window.visualViewport.height}px`);
-        setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+        setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 150);
       }
     };
     window.visualViewport?.addEventListener('resize', updateHeight);
     return () => window.visualViewport?.removeEventListener('resize', updateHeight);
   }, []);
 
-  const fetchMessages = () => {
-    axios.get('https://calcsocket.onrender.com/messages').then(res => setChatLog(res.data));
-  };
-
-  const markAsSeen = (id) => axios.post('https://calcsocket.onrender.com/seen', { userId: id });
+  const fetchMessages = () => axios.get(`${API_BASE}/messages`).then(res => setChatLog(res.data));
+  const markAsSeen = (id) => axios.post(`${API_BASE}/seen`, { userId: id });
 
   useEffect(() => {
     socket.on('receive_message', (msg) => {
@@ -52,10 +51,38 @@ function App() {
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatLog]);
 
-  const handleDoubleTap = () => {
-    const now = Date.now();
-    if (now - lastTap.current < 300) { setIsUnlocked(false); setCalcDisplay(""); }
-    else lastTap.current = now;
+  // 🔥 POWERFUL IMAGE COMPRESSOR
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 800; // Optimize for mobile screens
+        const scaleSize = MAX_WIDTH / img.width;
+        canvas.width = MAX_WIDTH;
+        canvas.height = img.height * scaleSize;
+
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7); // 70% quality
+        
+        socket.emit('send_message', { 
+          text: "", 
+          image: compressedBase64, 
+          senderId: currentUser.id, 
+          senderName: currentUser.name,
+          timestamp: new Date()
+        });
+        e.target.value = ""; // Reset input
+      };
+    };
   };
 
   const handlePress = (val) => {
@@ -69,13 +96,6 @@ function App() {
       }
     } else if (val === "C") setCalcDisplay("");
     else setCalcDisplay(prev => prev === "Error" ? val : prev + val);
-  };
-
-  const sendMessage = () => {
-    if (message.trim()) {
-      socket.emit('send_message', { text: message, senderId: currentUser.id, senderName: currentUser.name, timestamp: new Date() });
-      setMessage("");
-    }
   };
 
   return (
@@ -99,26 +119,38 @@ function App() {
 
         {showGreeting && (
           <motion.div key="greet" initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={styles.calcPage}>
-            <h1 style={{ color: '#8a9a8e' }}>Hello, {currentUser.name}</h1>
+            <h1 style={{ color: '#8a9a8e' }}>Accessing Vault...</h1>
           </motion.div>
         )}
 
         {isUnlocked && (
-          <motion.div key="chat" initial={{ y: "100%" }} animate={{ y: 0 }} style={styles.chatPage} onClick={handleDoubleTap}>
+          <motion.div key="chat" initial={{ y: "100%" }} animate={{ y: 0 }} style={styles.chatPage} onClick={() => {
+            const now = Date.now();
+            if (now - lastTap.current < 300) { setIsUnlocked(false); setCalcDisplay(""); }
+            else lastTap.current = now;
+          }}>
             <div style={styles.chatHeader}>
               <div style={{ display: 'flex', alignItems: 'center' }}>
                 <div style={styles.statusDot} />
                 <span style={{ color: '#fff', fontWeight: '600' }}>Rahitha & Eusebio</span>
               </div>
-              <button onClick={() => setIsUnlocked(false)} style={{ background: 'none', border: 'none', color: '#8a9a8e', fontWeight: 'bold' }}>Done</button>
+              <button onClick={() => setIsUnlocked(false)} style={styles.lockBtn}>Done</button>
             </div>
+            
             <div style={styles.messageList}>
               {chatLog.map((m, i) => {
                 const isMe = m.senderId === currentUser.id;
                 return (
                   <div key={i} style={{ ...styles.msgRow, justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
                     <div style={{ ...styles.bubble, backgroundColor: isMe ? '#8a9a8e' : '#1a1a1a', color: isMe ? '#000' : '#fff' }}>
-                      {m.text}
+                      {/* 🔥 IMAGE RENDERING LOGIC */}
+                      {m.image && (
+                        <div style={{ marginBottom: '8px' }}>
+                          <img src={m.image} alt="vault" style={{ maxWidth: '100%', borderRadius: '12px', display: 'block' }} />
+                          <a href={m.image} download="vault_img.png" style={{ ...styles.downloadLink, color: isMe ? '#000' : '#8a9a8e' }}>Download Image</a>
+                        </div>
+                      )}
+                      {m.text && <div style={{ wordBreak: 'break-word' }}>{m.text}</div>}
                       <div style={{ fontSize: '10px', marginTop: '4px', textAlign: 'right', opacity: 0.5 }}>
                         {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         {isMe && <span style={{ marginLeft: 5 }}>{m.seen ? "✓✓" : "✓"}</span>}
@@ -127,12 +159,16 @@ function App() {
                   </div>
                 );
               })}
-              <div ref={chatEndRef} />
+              <div ref={chatEndRef} style={{ height: '20px' }} />
             </div>
+
             <div style={styles.inputArea} onClick={(e) => e.stopPropagation()}>
+              <input type="file" id="imgInput" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
+              <button onClick={() => document.getElementById('imgInput').click()} style={styles.imgBtn}>📷</button>
+              
               <input style={styles.input} value={message} onChange={e => setMessage(e.target.value)} 
-                placeholder="Message..." onKeyPress={e => e.key === 'Enter' && sendMessage()} />
-              <button onClick={sendMessage} style={styles.sendBtn}>➔</button>
+                placeholder="Message..." onKeyPress={e => e.key === 'Enter' && socket.emit('send_message', { text: message, image: null, senderId: currentUser.id, senderName: currentUser.name, timestamp: new Date() }) || setMessage("")} />
+              <button onClick={() => { socket.emit('send_message', { text: message, image: null, senderId: currentUser.id, senderName: currentUser.name, timestamp: new Date() }); setMessage(""); }} style={styles.sendBtn}>➔</button>
             </div>
           </motion.div>
         )}
