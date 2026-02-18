@@ -87,5 +87,14 @@ export const styles = {
   sendBtn: { 
     width: '48px', height: '48px', borderRadius: '50%', border: 'none', 
     backgroundColor: '#8a9a8e', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center'
-  }
+  },
+  
+  typingIndicator: {
+    padding: '5px 24px',
+    fontSize: '12px',
+    color: '#8a9a8e',
+    fontStyle: 'italic',
+    zIndex: 10,
+    backgroundColor: 'transparent'
+  },
 };

@@ -52,6 +52,20 @@ app.post('/seen', async (req, res) => {
   res.sendStatus(200);
 });
 
+// 1. Typing Logic
+socket.on('typing', (data) => {
+  socket.broadcast.emit('display_typing', data);
+});
+
+// 2. Unsend Logic
+socket.on('delete_message', async (msgId) => {
+  try {
+    // Optional: Delete from MongoDB if using one
+    // await MessageModel.findByIdAndDelete(msgId); 
+    io.emit('message_deleted', msgId); // Tell everyone to remove it
+  } catch (err) { console.log(err); }
+});
+
 io.on('connection', (socket) => {
   socket.on('send_message', async (data) => {
     try {

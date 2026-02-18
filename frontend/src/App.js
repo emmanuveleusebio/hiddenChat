@@ -4,10 +4,8 @@ import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { styles } from './styles';
 
-// 🔥 PRODUCTION BACKEND URL
 const API_BASE = window.location.hostname === "localhost" ? "http://localhost:5000" : "https://calcsocket.onrender.com";
 const socket = io.connect(API_BASE);
-
 const USERS = { "9492": { name: "Eusebio", id: "9492" }, "9746": { name: "Rahitha", id: "9746" } };
 
 function App() {
@@ -18,52 +16,78 @@ function App() {
   const [chatLog, setChatLog] = useState([]);
   const [moodColor, setMoodColor] = useState("#050505");
   const [showKiss, setShowKiss] = useState(false);
+  
+  // 🔥 Typing State
+  const [otherUserTyping, setOtherUserTyping] = useState(false);
+  const typingTimeoutRef = useRef(null);
 
   const chatEndRef = useRef(null);
   const lastTap = useRef(0);
 
-  // 🔥 MASTERPIECE MOOD LOGIC
+  // Atmosphere Logic (Kept Safe)
   useEffect(() => {
     if (chatLog.length === 0) return;
     const lastMsg = chatLog[chatLog.length - 1].text?.trim();
-
-    // 🫂💋 or 💋🫂 - Masterpiece Hybrid Gradient + Animation
     if ((lastMsg?.includes("🫂") && lastMsg?.includes("💋")) || (lastMsg?.includes("💋") && lastMsg?.includes("🫂"))) {
       setMoodColor("linear-gradient(135deg, #4d0a2b 0%, #1a0a4d 50%, #0a2d4d 100%)");
       setShowKiss(true);
       setTimeout(() => setShowKiss(false), 2500);
-    } 
-    // ❤️ - Attractive Vibrant Red Radial
-    else if (lastMsg === "❤️") {
-      setMoodColor("radial-gradient(circle at center, #800a0a 0%, #3d0505 100%)");
-    } 
-    // 🫂 - Attractive Deep Blue Radial
-    else if (lastMsg === "🫂") {
-      setMoodColor("radial-gradient(circle at center, #0a2480 0%, #050f3d 100%)");
-    } 
-    // ❤️ + 🫂 - Dual Romantic Gradient
-    else if (lastMsg?.includes("❤️") && lastMsg?.includes("🫂")) {
-      setMoodColor("linear-gradient(135deg, #610a0a 0%, #0a1c61 100%)");
-    }
-    // 😁 - Reset to Black
-    else if (lastMsg === "😁") {
-      setMoodColor("#050505");
-    }
+    } else if (lastMsg === "❤️") setMoodColor("radial-gradient(circle at center, #800a0a 0%, #3d0505 100%)");
+    else if (lastMsg === "🫂") setMoodColor("radial-gradient(circle at center, #0a2480 0%, #050f3d 100%)");
+    else if (lastMsg?.includes("❤️") && lastMsg?.includes("🫂")) setMoodColor("linear-gradient(135deg, #610a0a 0%, #0a1c61 100%)");
+    else if (lastMsg === "😁") setMoodColor("#050505");
   }, [chatLog]);
 
-  // 🔥 SOCKETS & DATA
+  // 🔥 Sockets Logic (Updated for Unsend & Typing)
   useEffect(() => {
     socket.on('receive_message', (msg) => { setChatLog(prev => [...prev, msg]); });
-    return () => socket.off('receive_message');
-  }, []);
+    
+    // Listen for Unsend
+    socket.on('message_deleted', (msgId) => {
+      setChatLog(prev => prev.filter(m => m._id !== msgId && m.id !== msgId));
+    });
+
+    // Listen for Typing
+    socket.on('display_typing', (data) => {
+      if (data.userId !== currentUser?.id) {
+        setOtherUserTyping(data.typing);
+      }
+    });
+
+    return () => {
+      socket.off('receive_message');
+      socket.off('message_deleted');
+      socket.off('display_typing');
+    };
+  }, [currentUser]);
 
   useEffect(() => {
     if (isUnlocked && currentUser) axios.get(`${API_BASE}/messages`).then(res => setChatLog(res.data));
   }, [isUnlocked, currentUser]);
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatLog]);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatLog, otherUserTyping]);
 
-  // 🔥 CALCULATOR LOGIC
+  // 🔥 Typing Trigger
+  const handleTyping = (e) => {
+    setMessage(e.target.value);
+    
+    socket.emit('typing', { userId: currentUser.id, typing: true });
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit('typing', { userId: currentUser.id, typing: false });
+    }, 2000);
+  };
+
+  // 🔥 Unsend Logic
+  const unsend = (msgId) => {
+    if (window.confirm("Unsend this message?")) {
+      socket.emit('delete_message', msgId);
+      // Locally remove to be instant
+      setChatLog(prev => prev.filter(m => m._id !== msgId && m.id !== msgId));
+    }
+  };
+
   const handlePress = (v) => {
     if (v === "=") {
       if (USERS[calcDisplay]) { setCurrentUser(USERS[calcDisplay]); setIsUnlocked(true); }
@@ -75,22 +99,16 @@ function App() {
   const sendText = () => {
     if (message.trim()) {
       socket.emit('send_message', { text: message, image: null, senderId: currentUser.id, senderName: currentUser.name });
+      socket.emit('typing', { userId: currentUser.id, typing: false });
       setMessage("");
     }
   };
 
   return (
     <div style={styles.appViewport}>
-      {/* 💋 Full Screen Animation */}
       <AnimatePresence>
         {showKiss && (
-          <motion.div 
-            key="kissAnim"
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: [0, 1.2, 5], opacity: [0, 1, 0] }}
-            transition={{ duration: 2.2, ease: "easeInOut" }}
-            style={styles.kissLayer}
-          >
+          <motion.div key="kissAnim" initial={{ scale: 0, opacity: 0 }} animate={{ scale: [0, 1.2, 5], opacity: [0, 1, 0] }} transition={{ duration: 2.2 }} style={styles.kissLayer}>
             <span style={{ fontSize: '120px' }}>💋</span>
           </motion.div>
         )}
@@ -98,7 +116,7 @@ function App() {
 
       <AnimatePresence mode="wait">
         {!isUnlocked ? (
-          <motion.div key="calc" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={styles.calcPage}>
+          <motion.div key="calc" initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={styles.calcPage}>
             <div style={styles.calcCard}>
               <div style={styles.calcDisplay}>{calcDisplay || "0"}</div>
               <div style={styles.calcGrid}>
@@ -109,7 +127,7 @@ function App() {
             </div>
           </motion.div>
         ) : (
-          <motion.div key="chat" initial={{ y: "100%" }} animate={{ y: 0 }} style={styles.chatPage} onClick={() => {
+          <motion.div key="chat" style={styles.chatPage} onClick={() => {
             if (Date.now() - lastTap.current < 300) { setIsUnlocked(false); setCalcDisplay(""); }
             else lastTap.current = Date.now();
           }}>
@@ -126,20 +144,36 @@ function App() {
                 const isMood = ["❤️", "🫂", "😁", "💋"].some(e => m.text?.includes(e));
                 return (
                   <div key={i} style={{ ...styles.msgRow, justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
-                    <div style={{ ...styles.bubble, backgroundColor: isMe ? 'rgba(138, 154, 142, 0.92)' : 'rgba(26, 26, 26, 0.92)', color: isMe ? '#000' : '#fff' }}>
+                    <motion.div 
+                      onDoubleClick={() => isMe && unsend(m._id || m.id)}
+                      style={{ ...styles.bubble, backgroundColor: isMe ? 'rgba(138, 154, 142, 0.92)' : 'rgba(26, 26, 26, 0.92)', color: isMe ? '#000' : '#fff' }}
+                    >
                       {m.text && <div style={{ wordBreak: 'break-word', fontSize: isMood ? '48px' : '15px' }}>{m.text}</div>}
-                      <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '6px', textAlign: 'right', fontWeight: 'bold' }}>
+                      <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '6px', textAlign: 'right' }}>
                         {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </div>
-                    </div>
+                    </motion.div>
                   </div>
                 );
               })}
-              <div ref={chatEndRef} style={{ height: '20px' }} />
+              <div ref={chatEndRef} style={{ height: '10px' }} />
             </div>
 
+            {/* 🔥 Typing Indicator */}
+            {otherUserTyping && (
+              <div style={styles.typingIndicator}>
+                {currentUser.id === "9492" ? "Rahitha" : "Eusebio"} is typing...
+              </div>
+            )}
+
             <div style={styles.inputArea}>
-              <input style={styles.input} value={message} onChange={e => setMessage(e.target.value)} placeholder="Message..." onKeyPress={e => e.key === 'Enter' && sendText()} />
+              <input 
+                style={styles.input} 
+                value={message} 
+                onChange={handleTyping} 
+                placeholder="Message..." 
+                onKeyPress={e => e.key === 'Enter' && sendText()} 
+              />
               <button onClick={sendText} style={styles.sendBtn}>➔</button>
             </div>
           </motion.div>
