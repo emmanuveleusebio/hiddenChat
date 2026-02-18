@@ -4,6 +4,7 @@ import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { styles } from './styles';
 
+// 🔥 PRODUCTION BACKEND URL
 const API_BASE = window.location.hostname === "localhost" ? "http://localhost:5000" : "https://calcsocket.onrender.com";
 const socket = io.connect(API_BASE);
 
@@ -16,20 +17,41 @@ function App() {
   const [message, setMessage] = useState("");
   const [chatLog, setChatLog] = useState([]);
   const [moodColor, setMoodColor] = useState("#050505");
+  const [showKiss, setShowKiss] = useState(false);
 
   const chatEndRef = useRef(null);
   const lastTap = useRef(0);
 
-  // Sync Atmosphere
+  // 🔥 MASTERPIECE MOOD LOGIC
   useEffect(() => {
     if (chatLog.length === 0) return;
     const lastMsg = chatLog[chatLog.length - 1].text?.trim();
-    if (lastMsg?.includes("❤️") && lastMsg?.includes("🫂")) setMoodColor("linear-gradient(135deg, #3d0a0a 0%, #0a1a3d 100%)");
-    else if (lastMsg === "❤️") setMoodColor("#3d0a0a");
-    else if (lastMsg === "🫂") setMoodColor("#0a1a3d");
-    else if (lastMsg === "😁") setMoodColor("#050505");
+
+    // 🫂💋 or 💋🫂 - Masterpiece Hybrid Gradient + Animation
+    if ((lastMsg?.includes("🫂") && lastMsg?.includes("💋")) || (lastMsg?.includes("💋") && lastMsg?.includes("🫂"))) {
+      setMoodColor("linear-gradient(135deg, #4d0a2b 0%, #1a0a4d 50%, #0a2d4d 100%)");
+      setShowKiss(true);
+      setTimeout(() => setShowKiss(false), 2500);
+    } 
+    // ❤️ - Attractive Vibrant Red Radial
+    else if (lastMsg === "❤️") {
+      setMoodColor("radial-gradient(circle at center, #800a0a 0%, #3d0505 100%)");
+    } 
+    // 🫂 - Attractive Deep Blue Radial
+    else if (lastMsg === "🫂") {
+      setMoodColor("radial-gradient(circle at center, #0a2480 0%, #050f3d 100%)");
+    } 
+    // ❤️ + 🫂 - Dual Romantic Gradient
+    else if (lastMsg?.includes("❤️") && lastMsg?.includes("🫂")) {
+      setMoodColor("linear-gradient(135deg, #610a0a 0%, #0a1c61 100%)");
+    }
+    // 😁 - Reset to Black
+    else if (lastMsg === "😁") {
+      setMoodColor("#050505");
+    }
   }, [chatLog]);
 
+  // 🔥 SOCKETS & DATA
   useEffect(() => {
     socket.on('receive_message', (msg) => { setChatLog(prev => [...prev, msg]); });
     return () => socket.off('receive_message');
@@ -41,6 +63,7 @@ function App() {
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatLog]);
 
+  // 🔥 CALCULATOR LOGIC
   const handlePress = (v) => {
     if (v === "=") {
       if (USERS[calcDisplay]) { setCurrentUser(USERS[calcDisplay]); setIsUnlocked(true); }
@@ -58,6 +81,21 @@ function App() {
 
   return (
     <div style={styles.appViewport}>
+      {/* 💋 Full Screen Animation */}
+      <AnimatePresence>
+        {showKiss && (
+          <motion.div 
+            key="kissAnim"
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: [0, 1.2, 5], opacity: [0, 1, 0] }}
+            transition={{ duration: 2.2, ease: "easeInOut" }}
+            style={styles.kissLayer}
+          >
+            <span style={{ fontSize: '120px' }}>💋</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence mode="wait">
         {!isUnlocked ? (
           <motion.div key="calc" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={styles.calcPage}>
@@ -85,7 +123,7 @@ function App() {
             <div style={styles.messageList}>
               {chatLog.map((m, i) => {
                 const isMe = m.senderId === currentUser.id;
-                const isMood = ["❤️", "🫂", "😁"].includes(m.text?.trim());
+                const isMood = ["❤️", "🫂", "😁", "💋"].some(e => m.text?.includes(e));
                 return (
                   <div key={i} style={{ ...styles.msgRow, justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
                     <div style={{ ...styles.bubble, backgroundColor: isMe ? 'rgba(138, 154, 142, 0.92)' : 'rgba(26, 26, 26, 0.92)', color: isMe ? '#000' : '#fff' }}>
