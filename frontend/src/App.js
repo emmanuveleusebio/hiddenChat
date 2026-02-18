@@ -16,15 +16,14 @@ function App() {
   const [chatLog, setChatLog] = useState([]);
   const [moodColor, setMoodColor] = useState("#050505");
   const [showKiss, setShowKiss] = useState(false);
-  
-  // 🔥 Typing State
   const [otherUserTyping, setOtherUserTyping] = useState(false);
-  const typingTimeoutRef = useRef(null);
+  const [selectedMsg, setSelectedMsg] = useState(null);
 
+  const typingTimeoutRef = useRef(null);
   const chatEndRef = useRef(null);
   const lastTap = useRef(0);
 
-  // Atmosphere Logic (Kept Safe)
+  // 1. MOOD LOGIC
   useEffect(() => {
     if (chatLog.length === 0) return;
     const lastMsg = chatLog[chatLog.length - 1].text?.trim();
@@ -38,22 +37,15 @@ function App() {
     else if (lastMsg === "😁") setMoodColor("#050505");
   }, [chatLog]);
 
-  // 🔥 Sockets Logic (Updated for Unsend & Typing)
+  // 2. SOCKET LISTENERS
   useEffect(() => {
     socket.on('receive_message', (msg) => { setChatLog(prev => [...prev, msg]); });
-    
-    // Listen for Unsend
     socket.on('message_deleted', (msgId) => {
       setChatLog(prev => prev.filter(m => m._id !== msgId && m.id !== msgId));
     });
-
-    // Listen for Typing
     socket.on('display_typing', (data) => {
-      if (data.userId !== currentUser?.id) {
-        setOtherUserTyping(data.typing);
-      }
+      if (data.userId !== currentUser?.id) setOtherUserTyping(data.typing);
     });
-
     return () => {
       socket.off('receive_message');
       socket.off('message_deleted');
@@ -67,25 +59,19 @@ function App() {
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatLog, otherUserTyping]);
 
-  // 🔥 Typing Trigger
+  // 3. HANDLERS
   const handleTyping = (e) => {
     setMessage(e.target.value);
-    
     socket.emit('typing', { userId: currentUser.id, typing: true });
-
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
       socket.emit('typing', { userId: currentUser.id, typing: false });
     }, 2000);
   };
 
-  // 🔥 Unsend Logic
   const unsend = (msgId) => {
-    if (window.confirm("Unsend this message?")) {
-      socket.emit('delete_message', msgId);
-      // Locally remove to be instant
-      setChatLog(prev => prev.filter(m => m._id !== msgId && m.id !== msgId));
-    }
+    socket.emit('delete_message', msgId);
+    setSelectedMsg(null);
   };
 
   const handlePress = (v) => {
@@ -105,10 +91,10 @@ function App() {
   };
 
   return (
-    <div style={styles.appViewport}>
+    <div style={styles.appViewport} onClick={() => setSelectedMsg(null)}>
       <AnimatePresence>
         {showKiss && (
-          <motion.div key="kissAnim" initial={{ scale: 0, opacity: 0 }} animate={{ scale: [0, 1.2, 5], opacity: [0, 1, 0] }} transition={{ duration: 2.2 }} style={styles.kissLayer}>
+          <motion.div key="kiss" initial={{ scale: 0, opacity: 0 }} animate={{ scale: [0, 1.2, 5], opacity: [0, 1, 0] }} transition={{ duration: 2.2 }} style={styles.kissLayer}>
             <span style={{ fontSize: '120px' }}>💋</span>
           </motion.div>
         )}
@@ -141,39 +127,34 @@ function App() {
             <div style={styles.messageList}>
               {chatLog.map((m, i) => {
                 const isMe = m.senderId === currentUser.id;
+                const isSelected = selectedMsg === m._id;
                 const isMood = ["❤️", "🫂", "😁", "💋"].some(e => m.text?.includes(e));
                 return (
                   <div key={i} style={{ ...styles.msgRow, justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
-                    <motion.div 
-                      onDoubleClick={() => isMe && unsend(m._id || m.id)}
-                      style={{ ...styles.bubble, backgroundColor: isMe ? 'rgba(138, 154, 142, 0.92)' : 'rgba(26, 26, 26, 0.92)', color: isMe ? '#000' : '#fff' }}
-                    >
-                      {m.text && <div style={{ wordBreak: 'break-word', fontSize: isMood ? '48px' : '15px' }}>{m.text}</div>}
-                      <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '6px', textAlign: 'right' }}>
-                        {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
+                      <AnimatePresence>
+                        {isMe && isSelected && (
+                          <motion.button initial={{ scale: 0, x: 20 }} animate={{ scale: 1, x: 0 }} exit={{ scale: 0 }} onClick={() => unsend(m._id)} style={styles.unsendActionBtn}>Unsend</motion.button>
+                        )}
+                      </AnimatePresence>
+                      <div 
+                        onClick={(e) => { e.stopPropagation(); isMe && setSelectedMsg(m._id); }}
+                        style={{ ...styles.bubble, backgroundColor: isMe ? 'rgba(138, 154, 142, 0.92)' : 'rgba(26, 26, 26, 0.92)', color: isMe ? '#000' : '#fff', border: isSelected ? '1px solid #fff' : '1px solid rgba(255,255,255,0.08)' }}
+                      >
+                        {m.text && <div style={{ wordBreak: 'break-word', fontSize: isMood ? '48px' : '15px' }}>{m.text}</div>}
+                        <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '6px', textAlign: 'right' }}>{new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                       </div>
-                    </motion.div>
+                    </div>
                   </div>
                 );
               })}
               <div ref={chatEndRef} style={{ height: '10px' }} />
             </div>
 
-            {/* 🔥 Typing Indicator */}
-            {otherUserTyping && (
-              <div style={styles.typingIndicator}>
-                {currentUser.id === "9492" ? "Rahitha" : "Eusebio"} is typing...
-              </div>
-            )}
+            {otherUserTyping && <div style={styles.typingIndicator}>{currentUser.id === "9492" ? "Rahitha" : "Eusebio"} is typing...</div>}
 
             <div style={styles.inputArea}>
-              <input 
-                style={styles.input} 
-                value={message} 
-                onChange={handleTyping} 
-                placeholder="Message..." 
-                onKeyPress={e => e.key === 'Enter' && sendText()} 
-              />
+              <input style={styles.input} value={message} onChange={handleTyping} placeholder="Message..." onKeyPress={e => e.key === 'Enter' && sendText()} />
               <button onClick={sendText} style={styles.sendBtn}>➔</button>
             </div>
           </motion.div>

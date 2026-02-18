@@ -1,5 +1,5 @@
 export const styles = {
-  // 🔥 BASE VIEWPORT
+  // 🔥 BASE VIEWPORT: Standard mobile lock to prevent white space bounce
   appViewport: { 
     width: '100vw', 
     height: '100dvh', 
@@ -11,7 +11,7 @@ export const styles = {
     position: 'relative'
   },
 
-  // --- Calculator UI ---
+  // --- Calculator UI (Retro Hacker Style) ---
   calcPage: { 
     height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1,
     background: 'radial-gradient(circle at center, #1a1a1a 0%, #000 100%)', zIndex: 20
@@ -28,16 +28,16 @@ export const styles = {
   },
   equalBtn: { backgroundColor: '#8a9a8e', color: '#000' },
 
-  // --- Chat UI ---
+  // --- Chat UI (Masterpiece Atmosphere) ---
   chatPage: { 
     height: '100%', display: 'flex', flexDirection: 'column', 
     backgroundColor: '#050505', overflow: 'hidden', position: 'relative' 
   },
 
-  // 🔥 Atmosphere Layer (Z-INDEX: 1)
+  // 🔥 Atmosphere Layer: Z-Index 1 (Behind everything)
   atmosphere: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1 },
 
-  // 🔥 Kiss Animation Layer (Z-INDEX: 100)
+  // 🔥 Kiss Animation Layer: Z-Index 100 (Front of everything)
   kissLayer: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -68,10 +68,38 @@ export const styles = {
 
   msgRow: { display: 'flex', marginBottom: '16px', width: '100%' },
 
+  // 🔥 ONE-TAP UNSEND BUTTON
+  unsendActionBtn: {
+    backgroundColor: '#ff4d4d',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '12px',
+    padding: '8px 14px',
+    fontSize: '11px',
+    fontWeight: '900',
+    marginRight: '10px',
+    cursor: 'pointer',
+    boxShadow: '0 4px 15px rgba(255,77,77,0.3)',
+    zIndex: 20,
+    textTransform: 'uppercase'
+  },
+
   bubble: { 
     padding: '14px 20px', borderRadius: '25px', maxWidth: '85%', fontSize: '15px', lineHeight: '1.5',
     boxShadow: '0 8px 30px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.08)',
     position: 'relative', overflow: 'visible', fontFamily: 'Inter, -apple-system, sans-serif'
+  },
+
+  // 🔥 TYPING INDICATOR (Subtle Fade In)
+  typingIndicator: {
+    padding: '8px 24px',
+    fontSize: '13px',
+    color: '#8a9a8e',
+    fontStyle: 'italic',
+    zIndex: 10,
+    backgroundColor: 'transparent',
+    fontWeight: '500',
+    letterSpacing: '0.5px'
   },
 
   inputArea: { 
@@ -86,15 +114,7 @@ export const styles = {
 
   sendBtn: { 
     width: '48px', height: '48px', borderRadius: '50%', border: 'none', 
-    backgroundColor: '#8a9a8e', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center'
-  },
-  
-  typingIndicator: {
-    padding: '5px 24px',
-    fontSize: '12px',
-    color: '#8a9a8e',
-    fontStyle: 'italic',
-    zIndex: 10,
-    backgroundColor: 'transparent'
-  },
+    backgroundColor: '#8a9a8e', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: '20px'
+  }
 };
