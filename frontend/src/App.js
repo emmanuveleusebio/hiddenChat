@@ -4,9 +4,9 @@ import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { styles } from './styles';
 
-// 🔥 UPDATE THIS TO YOUR LAPTOP IP
+// 🔥 CHANGE THIS to your Laptop's IPv4 from 'ipconfig'
 const LAPTOP_IP = "192.168.1.15"; 
-const API_BASE = window.location.hostname === "localhost" ? `http://${LAPTOP_IP}:5000` : "https://your-prod-url.com";
+const API_BASE = window.location.hostname === "localhost" ? `http://${LAPTOP_IP}:5000` : "https://your-production-url.com";
 const socket = io.connect(API_BASE);
 
 const USERS = { "9492": { name: "Eusebio", id: "9492" }, "9746": { name: "Rahitha", id: "9746" } };
@@ -42,7 +42,6 @@ function App() {
 
   const chatEndRef = useRef(null);
   const lastTap = useRef(0);
-
   const isLoveEmoji = (text) => text?.trim() === "❤️";
 
   useEffect(() => {
@@ -67,25 +66,24 @@ function App() {
         applicationServerKey: urlBase64ToUint8Array('BCa8ewu1Ijm208I2oCUPuDppfrUIAcbKIam1zZWtrtY0rdELTpka-CT_Dqe2kUCy808DhyGPjGYjlCPPh2eYhWs')
       });
       await axios.post(`${API_BASE}/subscribe`, subscription);
-    } catch (e) { console.warn("Push registration failed", e); }
+    } catch (e) { console.warn("Push failed", e); }
   };
 
   useEffect(() => { if (isUnlocked) registerPush(); }, [isUnlocked]);
+
+  const fetchMessages = () => axios.get(`${API_BASE}/messages`).then(res => setChatLog(res.data)).catch(e => console.error("Fetch error", e));
 
   useEffect(() => {
     socket.on('receive_message', (msg) => {
       setChatLog(prev => [...prev, msg]);
       if (isUnlocked && currentUser && msg.senderId !== currentUser.id) axios.post(`${API_BASE}/seen`, { userId: currentUser.id });
     });
-    socket.on('messages_seen', () => axios.get(`${API_BASE}/messages`).then(res => setChatLog(res.data)));
+    socket.on('messages_seen', fetchMessages);
     return () => { socket.off('receive_message'); socket.off('messages_seen'); };
   }, [isUnlocked, currentUser]);
 
   useEffect(() => {
-    if (isUnlocked && currentUser) { 
-        axios.get(`${API_BASE}/messages`).then(res => setChatLog(res.data));
-        axios.post(`${API_BASE}/seen`, { userId: currentUser.id });
-    }
+    if (isUnlocked && currentUser) { fetchMessages(); axios.post(`${API_BASE}/seen`, { userId: currentUser.id }); }
   }, [isUnlocked, currentUser]);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatLog]);
@@ -113,12 +111,8 @@ function App() {
 
   const handlePress = (val) => {
     if (val === "=") {
-      if (USERS[calcDisplay]) {
-        setCurrentUser(USERS[calcDisplay]);
-        setIsUnlocked(true);
-      } else {
-        try { setCalcDisplay(String(eval(calcDisplay))); } catch { setCalcDisplay("Error"); setTimeout(() => setCalcDisplay(""), 800); }
-      }
+      if (USERS[calcDisplay]) { setCurrentUser(USERS[calcDisplay]); setIsUnlocked(true); }
+      else { try { setCalcDisplay(String(eval(calcDisplay))); } catch { setCalcDisplay("Error"); setTimeout(() => setCalcDisplay(""), 800); } }
     } else if (val === "C") setCalcDisplay("");
     else setCalcDisplay(prev => prev === "Error" ? val : prev + val);
   };
@@ -157,8 +151,7 @@ function App() {
               </div>
               <button onClick={() => setIsUnlocked(false)} style={styles.lockBtn}>Done</button>
             </div>
-            
-            <div style={styles.messageList}>
+            <div style={{ ...styles.messageList, paddingBottom: keyboardOpen ? '20px' : '100px' }}>
               {chatLog.map((m, i) => {
                 const isMe = m.senderId === currentUser.id;
                 const isLove = isLoveEmoji(m.text);
@@ -175,7 +168,6 @@ function App() {
               })}
               <div ref={chatEndRef} style={{ height: '20px' }} />
             </div>
-
             <div style={{ ...styles.inputArea, paddingBottom: keyboardOpen ? '10px' : 'calc(10px + env(safe-area-inset-bottom))' }} onClick={(e) => e.stopPropagation()}>
               <input type="file" id="imgInput" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
               <button onClick={() => document.getElementById('imgInput').click()} style={styles.imgBtn}>📷</button>
