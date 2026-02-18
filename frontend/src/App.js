@@ -4,7 +4,6 @@ import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { styles } from './styles';
 
-// 🔥 API BASE - KEPT UNCHANGED AS REQUESTED
 const API_BASE = window.location.hostname === "localhost" ? "http://localhost:5000" : "https://calcsocket.onrender.com";
 const socket = io.connect(API_BASE);
 
@@ -23,15 +22,14 @@ function App() {
   const chatEndRef = useRef(null);
   const lastTap = useRef(0);
 
-  // 1. 🔥 VIEWPORT & KEYBOARD FIX
-  // Prevents "drag down" white space and keeps input flush with keyboard
+  // 1. 🔥 VIEWPORT FIX (Sticky Header & Input)
   useEffect(() => {
     const updateViewport = () => {
       if (window.visualViewport) {
         setVh(`${window.visualViewport.height}px`);
         setKeyboardOpen(window.visualViewport.height < window.innerHeight * 0.85);
         if (window.visualViewport.height < window.innerHeight) {
-          window.scrollTo(0, 0); // Lock scroll
+          window.scrollTo(0, 0);
           setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
         }
       }
@@ -41,10 +39,32 @@ function App() {
     return () => window.visualViewport?.removeEventListener('resize', updateViewport);
   }, []);
 
-  // 2. 🔥 SHARED ATMOSPHERE ENGINE
-  // This evaluates the chat log and updates background for BOTH users
+  // 2. 🔥 STABLE SOCKET LISTENER
+  // This stays alive to catch messages for mood changes regardless of component refreshes
+  useEffect(() => {
+    socket.on('receive_message', (msg) => {
+      setChatLog(prev => {
+        const newLog = [...prev, msg];
+        return newLog;
+      });
+    });
+
+    socket.on('messages_seen', () => {
+        axios.get(`${API_BASE}/messages`).then(res => setChatLog(res.data));
+    });
+
+    return () => {
+      socket.off('receive_message');
+      socket.off('messages_seen');
+    };
+  }, []);
+
+  // 3. 🔥 SYNCED ATMOSPHERE LOGIC
+  // This monitors the chatLog and updates the background for EVERYONE
   useEffect(() => {
     if (chatLog.length === 0) return;
+    
+    // Check the latest message in the log
     const lastMsg = chatLog[chatLog.length - 1].text?.trim();
     
     if (lastMsg?.includes("❤️") && lastMsg?.includes("🫂")) {
@@ -56,33 +76,21 @@ function App() {
     } else if (lastMsg === "😁") {
       setMoodColor("#050505");
     }
-  }, [chatLog]);
+  }, [chatLog]); // Triggered every time a new message arrives via socket
 
-  // 3. 🔥 DATA FETCHING & SOCKETS
+  // 4. 🔥 INITIAL DATA LOAD
   useEffect(() => {
     if (isUnlocked && currentUser) {
-      // Initial Load
       axios.get(`${API_BASE}/messages`).then(res => setChatLog(res.data));
-      
-      // Listen for incoming messages (Syncs mood and text for both)
-      socket.on('receive_message', (msg) => {
-        setChatLog(prev => [...prev, msg]);
-      });
-
-      // Mark messages as seen
       axios.post(`${API_BASE}/seen`, { userId: currentUser.id });
     }
-
-    return () => {
-      socket.off('receive_message');
-    };
   }, [isUnlocked, currentUser]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatLog]);
 
-  // 4. 🔥 HANDLERS
+  // 5. 🔥 HANDLERS
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -107,8 +115,13 @@ function App() {
 
   const handlePress = (v) => {
     if (v === "=") {
-      if (USERS[calcDisplay]) { setCurrentUser(USERS[calcDisplay]); setIsUnlocked(true); }
-      else { try { setCalcDisplay(String(eval(calcDisplay))); } catch { setCalcDisplay("Error"); setTimeout(() => setCalcDisplay(""), 800); } }
+      if (USERS[calcDisplay]) { 
+        setCurrentUser(USERS[calcDisplay]); 
+        setIsUnlocked(true); 
+      } else {
+        try { setCalcDisplay(String(eval(calcDisplay))); } 
+        catch { setCalcDisplay("Error"); setTimeout(() => setCalcDisplay(""), 800); }
+      }
     } else if (v === "C") setCalcDisplay("");
     else setCalcDisplay(p => p === "Error" ? v : p + v);
   };
@@ -145,7 +158,7 @@ function App() {
             else lastTap.current = Date.now();
           }}>
             
-            {/* 🔥 ATMOSPHERE LAYER (3s Spreading Color) */}
+            {/* 🔥 ATMOSPHERE LAYER (3s Spread) */}
             <motion.div 
               style={{ ...styles.atmosphere, background: moodColor, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 }} 
               animate={{ background: moodColor }}
