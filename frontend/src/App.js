@@ -20,7 +20,7 @@ function App() {
   const chatEndRef = useRef(null);
   const lastTap = useRef(0);
 
-  // 🔥 MOOD SYNC (Works for both)
+  // Sync Atmosphere
   useEffect(() => {
     if (chatLog.length === 0) return;
     const lastMsg = chatLog[chatLog.length - 1].text?.trim();
@@ -30,13 +30,11 @@ function App() {
     else if (lastMsg === "😁") setMoodColor("#050505");
   }, [chatLog]);
 
-  // 🔥 SOCKETS
   useEffect(() => {
     socket.on('receive_message', (msg) => { setChatLog(prev => [...prev, msg]); });
     return () => socket.off('receive_message');
   }, []);
 
-  // 🔥 LOAD HISTORY
   useEffect(() => {
     if (isUnlocked && currentUser) axios.get(`${API_BASE}/messages`).then(res => setChatLog(res.data));
   }, [isUnlocked, currentUser]);
@@ -77,12 +75,11 @@ function App() {
             if (Date.now() - lastTap.current < 300) { setIsUnlocked(false); setCalcDisplay(""); }
             else lastTap.current = Date.now();
           }}>
-            
             <motion.div style={{ ...styles.atmosphere, background: moodColor }} animate={{ background: moodColor }} transition={{ duration: 3 }} />
 
             <div style={styles.chatHeader}>
-              <div style={{ display: 'flex', alignItems: 'center' }}><div style={styles.statusDot} /><span style={{ color: '#fff', fontWeight: 'bold' }}>Vault</span></div>
-              <button onClick={() => { setIsUnlocked(false); setCalcDisplay(""); }} style={styles.lockBtn}>Done</button>
+              <div style={{ display: 'flex', alignItems: 'center' }}><div style={styles.statusDot} /><span style={{ color: '#fff', fontWeight: 'bold' }}>VAULT</span></div>
+              <button onClick={() => { setIsUnlocked(false); setCalcDisplay(""); }} style={styles.lockBtn}>EXIT</button>
             </div>
             
             <div style={styles.messageList}>
@@ -91,9 +88,11 @@ function App() {
                 const isMood = ["❤️", "🫂", "😁"].includes(m.text?.trim());
                 return (
                   <div key={i} style={{ ...styles.msgRow, justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
-                    <div style={{ ...styles.bubble, backgroundColor: isMe ? 'rgba(138, 154, 142, 0.9)' : 'rgba(26, 26, 26, 0.9)', color: isMe ? '#000' : '#fff' }}>
-                      {m.text && <div style={{ wordBreak: 'break-word', fontSize: isMood ? '45px' : '16px' }}>{m.text}</div>}
-                      <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '4px', textAlign: 'right' }}>{new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                    <div style={{ ...styles.bubble, backgroundColor: isMe ? 'rgba(138, 154, 142, 0.92)' : 'rgba(26, 26, 26, 0.92)', color: isMe ? '#000' : '#fff' }}>
+                      {m.text && <div style={{ wordBreak: 'break-word', fontSize: isMood ? '48px' : '15px' }}>{m.text}</div>}
+                      <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '6px', textAlign: 'right', fontWeight: 'bold' }}>
+                        {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
                     </div>
                   </div>
                 );
