@@ -1,5 +1,5 @@
 export const styles = {
-  // 🔥 BASE VIEWPORT: Standard mobile lock to prevent white space bounce
+  // 🔥 BASE VIEWPORT
   appViewport: { 
     width: '100vw', 
     height: '100dvh', 
@@ -11,7 +11,7 @@ export const styles = {
     position: 'relative'
   },
 
-  // --- Calculator UI (Retro Hacker Style) ---
+  // --- Calculator UI ---
   calcPage: { 
     height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1,
     background: 'radial-gradient(circle at center, #1a1a1a 0%, #000 100%)', zIndex: 20
@@ -28,16 +28,14 @@ export const styles = {
   },
   equalBtn: { backgroundColor: '#8a9a8e', color: '#000' },
 
-  // --- Chat UI (Masterpiece Atmosphere) ---
+  // --- Chat UI ---
   chatPage: { 
     height: '100%', display: 'flex', flexDirection: 'column', 
     backgroundColor: '#050505', overflow: 'hidden', position: 'relative' 
   },
 
-  // 🔥 Atmosphere Layer: Z-Index 1 (Behind everything)
   atmosphere: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1 },
 
-  // 🔥 Kiss Animation Layer: Z-Index 100 (Front of everything)
   kissLayer: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -66,40 +64,53 @@ export const styles = {
     flexDirection: 'column', WebkitOverflowScrolling: 'touch', zIndex: 5, position: 'relative'
   },
 
-  msgRow: { display: 'flex', marginBottom: '16px', width: '100%' },
+  msgRow: { 
+    display: 'flex', 
+    marginBottom: '16px', 
+    width: '100%', 
+    position: 'relative',
+    alignItems: 'center' 
+  },
 
-  // 🔥 ONE-TAP UNSEND BUTTON
+  // 🔥 THE WIDTH FIX: fit-content ensures messages don't collapse
+  bubble: { 
+    padding: '14px 20px', 
+    borderRadius: '25px', 
+    maxWidth: '75%', 
+    fontSize: '15px', 
+    lineHeight: '1.5',
+    boxShadow: '0 8px 30px rgba(0,0,0,0.5)', 
+    border: '1px solid rgba(255,255,255,0.08)',
+    position: 'relative', 
+    overflow: 'visible', 
+    fontFamily: 'Inter, -apple-system, sans-serif',
+    wordWrap: 'break-word',
+    whiteSpace: 'pre-wrap',
+    minWidth: 'fit-content' 
+  },
+
   unsendActionBtn: {
     backgroundColor: '#ff4d4d',
     color: '#fff',
     border: 'none',
     borderRadius: '12px',
-    padding: '8px 14px',
+    padding: '8px 12px',
     fontSize: '11px',
     fontWeight: '900',
-    marginRight: '10px',
-    cursor: 'pointer',
-    boxShadow: '0 4px 15px rgba(255,77,77,0.3)',
+    marginRight: '8px',
+    flexShrink: 0,
     zIndex: 20,
-    textTransform: 'uppercase'
+    textTransform: 'uppercase',
+    boxShadow: '0 4px 12px rgba(255, 77, 77, 0.4)'
   },
 
-  bubble: { 
-    padding: '14px 20px', borderRadius: '25px', maxWidth: '85%', fontSize: '15px', lineHeight: '1.5',
-    boxShadow: '0 8px 30px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.08)',
-    position: 'relative', overflow: 'visible', fontFamily: 'Inter, -apple-system, sans-serif'
-  },
-
-  // 🔥 TYPING INDICATOR (Subtle Fade In)
   typingIndicator: {
     padding: '8px 24px',
     fontSize: '13px',
     color: '#8a9a8e',
     fontStyle: 'italic',
     zIndex: 10,
-    backgroundColor: 'transparent',
-    fontWeight: '500',
-    letterSpacing: '0.5px'
+    fontWeight: '500'
   },
 
   inputArea: { 
