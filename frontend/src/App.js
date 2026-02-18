@@ -37,29 +37,42 @@ function App() {
     else if (lastMsg === "😁") setMoodColor("#050505");
   }, [chatLog]);
 
-  // 2. SOCKET LISTENERS
+  // 2. FETCH & SEEN LOGIC
+  const fetchMessages = () => axios.get(`${API_BASE}/messages`).then(res => setChatLog(res.data));
+  const markAsSeen = (id) => axios.post(`${API_BASE}/seen`, { userId: id });
+
+  // 3. SOCKET LISTENERS
   useEffect(() => {
-    socket.on('receive_message', (msg) => { setChatLog(prev => [...prev, msg]); });
+    socket.on('receive_message', (msg) => { 
+      setChatLog(prev => [...prev, msg]); 
+      if (isUnlocked && currentUser && msg.senderId !== currentUser.id) markAsSeen(currentUser.id);
+    });
+    
     socket.on('message_deleted', (msgId) => {
       setChatLog(prev => prev.filter(m => m._id !== msgId && m.id !== msgId));
     });
+
     socket.on('display_typing', (data) => {
       if (data.userId !== currentUser?.id) setOtherUserTyping(data.typing);
     });
+
+    socket.on('messages_seen', fetchMessages);
+
     return () => {
       socket.off('receive_message');
       socket.off('message_deleted');
       socket.off('display_typing');
+      socket.off('messages_seen');
     };
-  }, [currentUser]);
+  }, [isUnlocked, currentUser]);
 
   useEffect(() => {
-    if (isUnlocked && currentUser) axios.get(`${API_BASE}/messages`).then(res => setChatLog(res.data));
+    if (isUnlocked && currentUser) { fetchMessages(); markAsSeen(currentUser.id); }
   }, [isUnlocked, currentUser]);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatLog, otherUserTyping]);
 
-  // 3. HANDLERS
+  // 4. HANDLERS
   const handleTyping = (e) => {
     setMessage(e.target.value);
     socket.emit('typing', { userId: currentUser.id, typing: true });
@@ -69,9 +82,35 @@ function App() {
     }, 2000);
   };
 
-  const unsend = (msgId) => {
-    socket.emit('delete_message', msgId);
-    setSelectedMsg(null);
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 800;
+        const scaleSize = MAX_WIDTH / img.width;
+        canvas.width = MAX_WIDTH;
+        canvas.height = img.height * scaleSize;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        // Emitting with image property
+        socket.emit('send_message', { text: "", image: canvas.toDataURL('image/jpeg', 0.6), senderId: currentUser.id, senderName: currentUser.name });
+        e.target.value = "";
+      };
+    };
+  };
+
+  const sendText = () => {
+    if (message.trim()) {
+      socket.emit('send_message', { text: message, image: null, senderId: currentUser.id, senderName: currentUser.name });
+      socket.emit('typing', { userId: currentUser.id, typing: false });
+      setMessage("");
+    }
   };
 
   const handlePress = (v) => {
@@ -82,12 +121,9 @@ function App() {
     else setCalcDisplay(p => p === "Error" ? v : p + v);
   };
 
-  const sendText = () => {
-    if (message.trim()) {
-      socket.emit('send_message', { text: message, image: null, senderId: currentUser.id, senderName: currentUser.name });
-      socket.emit('typing', { userId: currentUser.id, typing: false });
-      setMessage("");
-    }
+  const unsend = (msgId) => {
+    socket.emit('delete_message', msgId);
+    setSelectedMsg(null);
   };
 
   return (
@@ -114,14 +150,15 @@ function App() {
           </motion.div>
         ) : (
           <motion.div key="chat" style={styles.chatPage} onClick={() => {
-            if (Date.now() - lastTap.current < 300) { setIsUnlocked(false); setCalcDisplay(""); }
-            else lastTap.current = Date.now();
+            const now = Date.now();
+            if (now - lastTap.current < 300) { setIsUnlocked(false); setCalcDisplay(""); }
+            else lastTap.current = now;
           }}>
             <motion.div style={{ ...styles.atmosphere, background: moodColor }} animate={{ background: moodColor }} transition={{ duration: 3 }} />
 
             <div style={styles.chatHeader}>
               <div style={{ display: 'flex', alignItems: 'center' }}><div style={styles.statusDot} /><span style={{ color: '#fff', fontWeight: 'bold' }}>VAULT</span></div>
-              <button onClick={() => { setIsUnlocked(false); setCalcDisplay(""); }} style={styles.lockBtn}>EXIT</button>
+              <button onClick={(e) => { e.stopPropagation(); setIsUnlocked(false); setCalcDisplay(""); }} style={styles.lockBtn}>EXIT</button>
             </div>
             
             <div style={styles.messageList}>
@@ -141,8 +178,15 @@ function App() {
                         onClick={(e) => { e.stopPropagation(); isMe && setSelectedMsg(m._id); }}
                         style={{ ...styles.bubble, backgroundColor: isMe ? 'rgba(138, 154, 142, 0.92)' : 'rgba(26, 26, 26, 0.92)', color: isMe ? '#000' : '#fff', border: isSelected ? '1px solid #fff' : '1px solid rgba(255,255,255,0.08)' }}
                       >
+                        {/* IMAGE RENDERING */}
+                        {m.image && <img src={m.image} alt="v" style={{ maxWidth: '100%', borderRadius: '12px', display: 'block', marginBottom: '8px' }} />}
+                        
                         {m.text && <div style={{ wordBreak: 'break-word', fontSize: isMood ? '48px' : '15px' }}>{m.text}</div>}
-                        <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '6px', textAlign: 'right' }}>{new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                        
+                        <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '6px', textAlign: 'right' }}>
+                          {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {isMe && <span style={{ marginLeft: '4px' }}>{m.seen ? "✓✓" : "✓"}</span>}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -153,7 +197,10 @@ function App() {
 
             {otherUserTyping && <div style={styles.typingIndicator}>{currentUser.id === "9492" ? "Rahitha" : "Eusebio"} is typing...</div>}
 
-            <div style={styles.inputArea}>
+            {/* 🔥 STOP PROPAGATION HERE: Prevents exit on click */}
+            <div style={styles.inputArea} onClick={(e) => e.stopPropagation()}>
+              <input type="file" id="imgInput" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
+              <button onClick={() => document.getElementById('imgInput').click()} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer' }}>📷</button>
               <input style={styles.input} value={message} onChange={handleTyping} placeholder="Message..." onKeyPress={e => e.key === 'Enter' && sendText()} />
               <button onClick={sendText} style={styles.sendBtn}>➔</button>
             </div>
