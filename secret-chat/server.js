@@ -39,13 +39,14 @@ const MessageSchema = new mongoose.Schema({
   senderName: String,
   seen: { type: Boolean, default: false },
   timestamp: { type: Date, default: Date.now },
-  // ADD THIS:
+  // Explicitly defined sub-document
   replyTo: {
-    text: String,
-    image: String,
-    senderName: String
+    text: { type: String, default: "" },
+    image: { type: String, default: null },
+    senderName: { type: String, default: "" }
   }
-});
+}, { minimize: false });
+
 const Message = mongoose.model('Message', MessageSchema);
 
 app.get('/messages', async (req, res) => {
@@ -71,21 +72,23 @@ app.post('/save-token', async (req, res) => {
 io.on('connection', (socket) => {
   socket.on('send_message', async (data) => {
     try {
-      console.log(data.replyTo, '--------------------------------------')
-      const newMessage = new Message({
+const newMessage = new Message({
       text: data.text,
       image: data.image,
       senderId: data.senderId,
       senderName: data.senderName,
-      replyTo: data.replyTo, // Specifically map this
+      replyTo: data.replyTo ? {
+        text: data.replyTo.text || "",
+        image: data.replyTo.image || null,
+        senderName: data.replyTo.senderName || ""
+      } : null,
       timestamp: new Date(),
       seen: false
     });
 
     const savedMessage = await newMessage.save();
-      io.emit('receive_message', newMessage);
-
-
+    // Use io.emit so EVERYONE (including the sender) gets the updated message object from the DB
+    io.emit('receive_message', savedMessage);
 
       // --- BROADCAST NOTIFICATION LOGIC ---
       // 1. Find all tokens EXCEPT the sender
