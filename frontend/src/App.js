@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { styles } from './styles';
 import { requestForToken } from './firebase-config';
 
-
 const API_BASE = window.location.hostname === "localhost" ? "http://localhost:5000" : "https://calcsocket.onrender.com";
 const socket = io.connect(API_BASE);
 const USERS = { "9492": { name: "Eusebio", id: "9492" }, "9746": { name: "Rahitha", id: "9746" } };
@@ -25,6 +24,15 @@ function App() {
   const chatEndRef = useRef(null);
   const lastTap = useRef(0);
 
+  // Inside your App.js, find the useEffect for notifications
+useEffect(() => {
+  if (isUnlocked && currentUser) {
+    console.log("Vault unlocked, requesting token...");
+    // Pass the userId and the API URL to the helper function
+    requestForToken(currentUser.id, API_BASE);
+  }
+}, [isUnlocked, currentUser]);
+
   // 1. MOOD LOGIC
   useEffect(() => {
     if (chatLog.length === 0) return;
@@ -42,13 +50,6 @@ function App() {
   // 2. FETCH & SEEN LOGIC
   const fetchMessages = () => axios.get(`${API_BASE}/messages`).then(res => setChatLog(res.data));
   const markAsSeen = (id) => axios.post(`${API_BASE}/seen`, { userId: id });
-
-// This triggers the notification prompt only AFTER the vault is unlocked
-  useEffect(() => {
-  if (isUnlocked && currentUser) {
-    requestForToken(currentUser.id, API_BASE);
-  }
-}, [isUnlocked, currentUser]);
 
   // 3. SOCKET LISTENERS
   useEffect(() => {

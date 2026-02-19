@@ -14,9 +14,9 @@ app.use(express.json({ limit: '50mb' })); // Increased limit for images
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 const server = http.createServer(app);
-const io = new Server(server, { 
+const io = new Server(server, {
   cors: { origin: "*" },
-  maxHttpBufferSize: 1e8 
+  maxHttpBufferSize: 1e8
 });
 
 
@@ -33,9 +33,9 @@ const Token = mongoose.model('Token', TokenSchema);
 mongoose.connect(process.env.MONGO_URI).then(() => console.log("Vault DB Connected"));
 
 const MessageSchema = new mongoose.Schema({
-  text: String, 
+  text: String,
   image: String, // From old code
-  senderId: String, 
+  senderId: String,
   senderName: String,
   seen: { type: Boolean, default: false }, // From old code
   timestamp: { type: Date, default: Date.now }
@@ -65,28 +65,31 @@ app.post('/save-token', async (req, res) => {
 io.on('connection', (socket) => {
   socket.on('send_message', async (data) => {
     try {
-      const newMessage = new Message({ 
-        ...data, 
-        timestamp: new Date(), 
-        seen: false 
+      const newMessage = new Message({
+        ...data,
+        timestamp: new Date(),
+        seen: false
       });
       await newMessage.save();
       io.emit('receive_message', newMessage);
 
 
 
-      // --- SEND NOTIFICATION LOGIC ---
-      const recipientId = data.senderId === "9492" ? "9746" : "9492"; // If Eusebio sends, send to Rahitha (and vice versa)
-      const target = await Token.findOne({ userId: recipientId });
-      
-      if (target) {
-        admin.messaging().send({
-          notification: {
-            title: `New Message from ${data.senderName}`,
-            body: data.text || "Sent an image 📷"
-          },
-          token: target.token
-        }).catch(e => console.log("Push failed:", e));
+      // --- BROADCAST NOTIFICATION LOGIC ---
+      // 1. Find all tokens EXCEPT the sender
+      const otherTokens = await Token.find({ userId: { $ne: data.senderId } });
+
+      if (otherTokens.length > 0) {
+        otherTokens.forEach(t => {
+          admin.messaging().send({
+            notification: {
+              title: `Vault: ${data.senderName}`,
+              body: data.text || "Sent an image 📷"
+            },
+            token: t.token // Send to this specific token
+          }).catch(e => console.log("Push failed for a token:", e));
+        });
+        console.log(`Attempted to send notifications to ${otherTokens.length} devices.`);
       }
     } catch (err) { console.error(err); }
   });
