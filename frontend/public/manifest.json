@@ -1,6 +1,7 @@
 {
   "short_name": "Calculator",
   "name": "Calculator Plus",
+  "gcm_sender_id": "103953800507",
   "icons": [
     {
       "src": "logo192.png",
