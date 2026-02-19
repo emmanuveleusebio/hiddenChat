@@ -4,6 +4,8 @@ const http = require('http');
 const { Server } = require('socket.io');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const admin = require('firebase-admin');
+const serviceAccount = require("./serviceAccount.json"); // The file you just downloaded
 
 const app = express();
 app.use(cors());
@@ -15,6 +17,17 @@ const io = new Server(server, {
   cors: { origin: "*" },
   maxHttpBufferSize: 1e8 
 });
+
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+// 1. Add Token Database Schema
+const TokenSchema = new mongoose.Schema({ userId: String, token: String });
+const Token = mongoose.model('Token', TokenSchema);
+
+
 
 mongoose.connect(process.env.MONGO_URI).then(() => console.log("Vault DB Connected"));
 
@@ -40,6 +53,14 @@ app.post('/seen', async (req, res) => {
   res.sendStatus(200);
 });
 
+// 2. Add endpoint to save the token
+app.post('/save-token', async (req, res) => {
+  const { userId, token } = req.body;
+  await Token.findOneAndUpdate({ userId }, { token }, { upsert: true });
+  res.sendStatus(200);
+});
+
+
 io.on('connection', (socket) => {
   socket.on('send_message', async (data) => {
     try {
@@ -50,8 +71,25 @@ io.on('connection', (socket) => {
       });
       await newMessage.save();
       io.emit('receive_message', newMessage);
+
+
+
+      // --- SEND NOTIFICATION LOGIC ---
+      const recipientId = data.senderId === "9492" ? "9746" : "9492"; // If Eusebio sends, send to Rahitha (and vice versa)
+      const target = await Token.findOne({ userId: recipientId });
+      
+      if (target) {
+        admin.messaging().send({
+          notification: {
+            title: `New Message from ${data.senderName}`,
+            body: data.text || "Sent an image 📷"
+          },
+          token: target.token
+        }).catch(e => console.log("Push failed:", e));
+      }
     } catch (err) { console.error(err); }
   });
+
 
   socket.on('delete_message', async (msgId) => {
     await Message.findByIdAndDelete(msgId);
