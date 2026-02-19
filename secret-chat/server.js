@@ -34,11 +34,17 @@ mongoose.connect(process.env.MONGO_URI).then(() => console.log("Vault DB Connect
 
 const MessageSchema = new mongoose.Schema({
   text: String,
-  image: String, // From old code
+  image: String,
   senderId: String,
   senderName: String,
-  seen: { type: Boolean, default: false }, // From old code
-  timestamp: { type: Date, default: Date.now }
+  seen: { type: Boolean, default: false },
+  timestamp: { type: Date, default: Date.now },
+  // ADD THIS:
+  replyTo: {
+    text: String,
+    image: String,
+    senderName: String
+  }
 });
 const Message = mongoose.model('Message', MessageSchema);
 
@@ -65,12 +71,18 @@ app.post('/save-token', async (req, res) => {
 io.on('connection', (socket) => {
   socket.on('send_message', async (data) => {
     try {
+      console.log(data.replyTo, '--------------------------------------')
       const newMessage = new Message({
-        ...data,
-        timestamp: new Date(),
-        seen: false
-      });
-      await newMessage.save();
+      text: data.text,
+      image: data.image,
+      senderId: data.senderId,
+      senderName: data.senderName,
+      replyTo: data.replyTo, // Specifically map this
+      timestamp: new Date(),
+      seen: false
+    });
+
+    const savedMessage = await newMessage.save();
       io.emit('receive_message', newMessage);
 
 

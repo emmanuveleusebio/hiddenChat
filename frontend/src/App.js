@@ -19,19 +19,18 @@ function App() {
   const [showKiss, setShowKiss] = useState(false);
   const [otherUserTyping, setOtherUserTyping] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState(null);
+  const [replyingTo, setReplyingTo] = useState(null);
 
   const typingTimeoutRef = useRef(null);
   const chatEndRef = useRef(null);
   const lastTap = useRef(0);
 
-  // Inside your App.js, find the useEffect for notifications
-useEffect(() => {
-  if (isUnlocked && currentUser) {
-    console.log("Vault unlocked, requesting token...");
-    // Pass the userId and the API URL to the helper function
-    requestForToken(currentUser.id, API_BASE);
-  }
-}, [isUnlocked, currentUser]);
+  useEffect(() => {
+    if (isUnlocked && currentUser) {
+      console.log("Vault unlocked, requesting token...");
+      requestForToken(currentUser.id, API_BASE);
+    }
+  }, [isUnlocked, currentUser]);
 
   // 1. MOOD LOGIC
   useEffect(() => {
@@ -53,11 +52,11 @@ useEffect(() => {
 
   // 3. SOCKET LISTENERS
   useEffect(() => {
-    socket.on('receive_message', (msg) => { 
-      setChatLog(prev => [...prev, msg]); 
+    socket.on('receive_message', (msg) => {
+      setChatLog(prev => [...prev, msg]);
       if (isUnlocked && currentUser && msg.senderId !== currentUser.id) markAsSeen(currentUser.id);
     });
-    
+
     socket.on('message_deleted', (msgId) => {
       setChatLog(prev => prev.filter(m => m._id !== msgId && m.id !== msgId));
     });
@@ -108,8 +107,14 @@ useEffect(() => {
         canvas.height = img.height * scaleSize;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        // Emitting with image property
-        socket.emit('send_message', { text: "", image: canvas.toDataURL('image/jpeg', 0.6), senderId: currentUser.id, senderName: currentUser.name });
+        socket.emit('send_message', { 
+          text: "", 
+          image: canvas.toDataURL('image/jpeg', 0.6), 
+          senderId: currentUser.id, 
+          senderName: currentUser.name,
+          replyTo: replyingTo 
+        });
+        setReplyingTo(null);
         e.target.value = "";
       };
     };
@@ -117,12 +122,20 @@ useEffect(() => {
 
   const sendText = () => {
     if (message.trim()) {
-      socket.emit('send_message', { text: message, image: null, senderId: currentUser.id, senderName: currentUser.name });
+      const payload = {
+        text: message,
+        image: null,
+        senderId: currentUser.id,
+        senderName: currentUser.name,
+        replyTo: replyingTo
+      };
+      socket.emit('send_message', payload);
       socket.emit('typing', { userId: currentUser.id, typing: false });
       setMessage("");
+      setReplyingTo(null);
     }
   };
-
+console.log(replyingTo, '==============================================')
   const handlePress = (v) => {
     if (v === "=") {
       if (USERS[calcDisplay]) { setCurrentUser(USERS[calcDisplay]); setIsUnlocked(true); }
@@ -153,7 +166,7 @@ useEffect(() => {
               <div style={styles.calcDisplay}>{calcDisplay || "0"}</div>
               <div style={styles.calcGrid}>
                 {["C", "/", "*", "-", "7", "8", "9", "+", "4", "5", "6", "(", "1", "2", "3", ")", "0", ".", "="].map(btn => (
-                  <button key={btn} onClick={() => handlePress(btn)} style={{...styles.calcBtn, ...(btn === "=" ? styles.equalBtn : {})}}>{btn}</button>
+                  <button key={btn} onClick={() => handlePress(btn)} style={{ ...styles.calcBtn, ...(btn === "=" ? styles.equalBtn : {}) }}>{btn}</button>
                 ))}
               </div>
             </div>
@@ -170,7 +183,7 @@ useEffect(() => {
               <div style={{ display: 'flex', alignItems: 'center' }}><div style={styles.statusDot} /><span style={{ color: '#fff', fontWeight: 'bold' }}>VAULT</span></div>
               <button onClick={(e) => { e.stopPropagation(); setIsUnlocked(false); setCalcDisplay(""); }} style={styles.lockBtn}>EXIT</button>
             </div>
-            
+
             <div style={styles.messageList}>
               {chatLog.map((m, i) => {
                 const isMe = m.senderId === currentUser.id;
@@ -184,15 +197,46 @@ useEffect(() => {
                           <motion.button initial={{ scale: 0, x: 20 }} animate={{ scale: 1, x: 0 }} exit={{ scale: 0 }} onClick={() => unsend(m._id)} style={styles.unsendActionBtn}>Unsend</motion.button>
                         )}
                       </AnimatePresence>
-                      <div 
-                        onClick={(e) => { e.stopPropagation(); isMe && setSelectedMsg(m._id); }}
-                        style={{ ...styles.bubble, backgroundColor: isMe ? 'rgba(138, 154, 142, 0.92)' : 'rgba(26, 26, 26, 0.92)', color: isMe ? '#000' : '#fff', border: isSelected ? '1px solid #fff' : '1px solid rgba(255,255,255,0.08)' }}
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const now = Date.now();
+                          if (now - lastTap.current < 300) {
+                            setReplyingTo({ text: m.text, image: m.image, senderName: m.senderName });
+                            setSelectedMsg(null);
+                          } else {
+                            if (isMe) setSelectedMsg(m._id);
+                          }
+                          lastTap.current = now;
+                        }}
+                        style={{
+                          ...styles.bubble,
+                          backgroundColor: isMe ? 'rgba(138, 154, 142, 0.92)' : 'rgba(26, 26, 26, 0.92)',
+                          color: isMe ? '#000' : '#fff',
+                          border: isSelected ? '1px solid #fff' : '1px solid rgba(255,255,255,0.08)'
+                        }}
                       >
-                        {/* IMAGE RENDERING */}
+                        {m.replyTo && (
+                          <div style={{
+                            background: 'rgba(0,0,0,0.15)',
+                            padding: '6px 10px',
+                            borderRadius: '6px',
+                            borderLeft: `3px solid ${isMe ? '#000' : '#8a9a8e'}`,
+                            marginBottom: '8px',
+                            fontSize: '12px'
+                          }}>
+                            <div style={{ fontWeight: 'bold', fontSize: '11px', color: isMe ? '#444' : '#8a9a8e' }}>
+                              {m.replyTo.senderName}
+                            </div>
+                            <div style={{ opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '150px' }}>
+                              {m.replyTo.text || "📷 Image"}
+                            </div>
+                          </div>
+                        )}
+                        
                         {m.image && <img src={m.image} alt="v" style={{ maxWidth: '100%', borderRadius: '12px', display: 'block', marginBottom: '8px' }} />}
-                        
                         {m.text && <div style={{ wordBreak: 'break-word', fontSize: isMood ? '48px' : '15px' }}>{m.text}</div>}
-                        
+
                         <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '6px', textAlign: 'right' }}>
                           {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           {isMe && <span style={{ marginLeft: '4px' }}>{m.seen ? "✓✓" : "✓"}</span>}
@@ -207,7 +251,35 @@ useEffect(() => {
 
             {otherUserTyping && <div style={styles.typingIndicator}>{currentUser.id === "9492" ? "Rahitha" : "Eusebio"} is typing...</div>}
 
-            {/* 🔥 STOP PROPAGATION HERE: Prevents exit on click */}
+            <AnimatePresence>
+              {replyingTo && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  style={{
+                    padding: '10px 15px',
+                    background: 'rgba(30, 30, 30, 0.98)',
+                    borderLeft: '4px solid #8a9a8e',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    backdropFilter: 'blur(10px)',
+                    position: 'relative',
+                    zIndex: 10,
+                    borderTop: '1px solid rgba(255,255,255,0.1)'
+                  }}>
+                  <div style={{ fontSize: '12px', color: '#ccc', flex: 1 }}>
+                    <div style={{ fontWeight: 'bold', color: '#8a9a8e' }}>Replying to {replyingTo.senderName}</div>
+                    <div style={{ opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '250px' }}>
+                      {replyingTo.text || "Image 📷"}
+                    </div>
+                  </div>
+                  <button onClick={(e) => { e.stopPropagation(); setReplyingTo(null); }} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '18px', cursor: 'pointer', marginLeft: '10px' }}>✕</button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <div style={styles.inputArea} onClick={(e) => e.stopPropagation()}>
               <input type="file" id="imgInput" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
               <button onClick={() => document.getElementById('imgInput').click()} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer' }}>📷</button>
