@@ -5,7 +5,8 @@ const { Server } = require('socket.io');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const admin = require('firebase-admin');
-const serviceAccount = require("./serviceAccount.json"); // The file you just downloaded
+
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 const app = express();
 app.use(cors());
