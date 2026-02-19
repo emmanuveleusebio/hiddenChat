@@ -3,6 +3,8 @@ import io from 'socket.io-client';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { styles } from './styles';
+import { requestForToken } from './firebase-config';
+
 
 const API_BASE = window.location.hostname === "localhost" ? "http://localhost:5000" : "https://calcsocket.onrender.com";
 const socket = io.connect(API_BASE);
@@ -40,6 +42,13 @@ function App() {
   // 2. FETCH & SEEN LOGIC
   const fetchMessages = () => axios.get(`${API_BASE}/messages`).then(res => setChatLog(res.data));
   const markAsSeen = (id) => axios.post(`${API_BASE}/seen`, { userId: id });
+
+// This triggers the notification prompt only AFTER the vault is unlocked
+  useEffect(() => {
+  if (isUnlocked && currentUser) {
+    requestForToken(currentUser.id, API_BASE);
+  }
+}, [isUnlocked, currentUser]);
 
   // 3. SOCKET LISTENERS
   useEffect(() => {
