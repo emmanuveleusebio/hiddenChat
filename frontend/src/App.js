@@ -21,23 +21,36 @@ function App() {
   const [selectedMsg, setSelectedMsg] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
 
+  // NEW FEATURE STATES
+  const [isNotesOpen, setIsNotesOpen] = useState(false);
+  const [notes, setNotes] = useState([]);
+  const [newNote, setNewNote] = useState("");
+  const [emojiRain, setEmojiRain] = useState(null);
+  const [pingHeart, setPingHeart] = useState(false);
+  const [isPartnerPresent, setIsPartnerPresent] = useState(false);
+
   const typingTimeoutRef = useRef(null);
   const chatEndRef = useRef(null);
-
-  // ✅ FIX 1: Two SEPARATE refs — one for page exit, one for message reply
   const pageLastTap = useRef(0);
   const msgLastTap = useRef({ id: null, time: 0 });
 
   useEffect(() => {
     if (isUnlocked && currentUser) {
       requestForToken(currentUser.id, API_BASE);
+      socket.emit('user_active', currentUser.id); // NEW: Notify presence
     }
   }, [isUnlocked, currentUser]);
 
-  // MOOD LOGIC
+  // MOOD LOGIC (Original + Emoji Rain Addition)
   useEffect(() => {
     if (chatLog.length === 0) return;
     const lastMsg = chatLog[chatLog.length - 1].text?.trim();
+
+    // Trigger Emoji Rain separately
+    if (lastMsg?.includes("🎈")) triggerRain("🎈");
+    if (lastMsg?.includes("❄️")) triggerRain("❄️");
+    if (lastMsg?.includes("✨")) triggerRain("✨");
+
     if ((lastMsg?.includes("🫂") && lastMsg?.includes("💋")) || (lastMsg?.includes("💋") && lastMsg?.includes("🫂"))) {
       setMoodColor("linear-gradient(135deg, #4d0a2b 0%, #1a0a4d 50%, #0a2d4d 100%)");
       setShowKiss(true);
@@ -48,7 +61,13 @@ function App() {
     else if (lastMsg === "😁") setMoodColor("#050505");
   }, [chatLog]);
 
+  const triggerRain = (emoji) => {
+    setEmojiRain(emoji);
+    setTimeout(() => setEmojiRain(null), 4000);
+  };
+
   const fetchMessages = () => axios.get(`${API_BASE}/messages`).then(res => setChatLog(res.data));
+  const fetchNotes = () => axios.get(`${API_BASE}/notes`).then(res => setNotes(res.data));
   const markAsSeen = (id) => axios.post(`${API_BASE}/seen`, { userId: id });
 
   useEffect(() => {
@@ -56,6 +75,20 @@ function App() {
       setChatLog(prev => [...prev, msg]);
       if (isUnlocked && currentUser && msg.senderId !== currentUser.id) markAsSeen(currentUser.id);
     });
+
+    socket.on('presence_update', (users) => {
+      const partnerId = currentUser?.id === "9492" ? "9746" : "9492";
+      setIsPartnerPresent(users.includes(partnerId));
+    });
+
+    socket.on('receive_heart_ping', () => {
+      setPingHeart(true);
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      setTimeout(() => setPingHeart(false), 2500);
+    });
+
+    socket.on('note_updated', fetchNotes);
+
     socket.on('message_deleted', (msgId) => {
       setChatLog(prev => prev.filter(m => m._id !== msgId && m.id !== msgId));
     });
@@ -68,11 +101,18 @@ function App() {
       socket.off('message_deleted');
       socket.off('display_typing');
       socket.off('messages_seen');
+      socket.off('presence_update');
+      socket.off('receive_heart_ping');
+      socket.off('note_updated');
     };
   }, [isUnlocked, currentUser]);
 
   useEffect(() => {
-    if (isUnlocked && currentUser) { fetchMessages(); markAsSeen(currentUser.id); }
+    if (isUnlocked && currentUser) { 
+      fetchMessages(); 
+      fetchNotes();
+      markAsSeen(currentUser.id); 
+    }
   }, [isUnlocked, currentUser]);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatLog, otherUserTyping]);
@@ -86,6 +126,13 @@ function App() {
     }, 2000);
   };
 
+  const sendHeartPing = () => {
+    socket.emit('heart_ping', { from: currentUser.id });
+    setPingHeart(true);
+    setTimeout(() => setPingHeart(false), 2500);
+  };
+
+  // ✅ EXISTING IMAGE UPLOAD LOGIC (RESIZING + COMPRESSION) - UNTOUCHED
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -145,9 +192,16 @@ function App() {
     }
   };
 
+  const saveNote = () => {
+    if (!newNote.trim()) return;
+    axios.post(`${API_BASE}/notes`, { content: newNote });
+    setNewNote("");
+  };
+
   const handlePress = (v) => {
     if (v === "=") {
       if (USERS[calcDisplay]) { setCurrentUser(USERS[calcDisplay]); setIsUnlocked(true); }
+      else if (calcDisplay === "1111") { setIsNotesOpen(true); setIsUnlocked(true); setCurrentUser(USERS["9492"]); } // Trapdoor code
       else { try { setCalcDisplay(String(eval(calcDisplay))); } catch { setCalcDisplay("Error"); setTimeout(() => setCalcDisplay(""), 800); } }
     } else if (v === "C") setCalcDisplay("");
     else setCalcDisplay(p => p === "Error" ? v : p + v);
@@ -158,7 +212,6 @@ function App() {
     setSelectedMsg(null);
   };
 
-  // ✅ FIX 2: Page double-tap uses its OWN ref (pageLastTap), not shared with messages
   const handlePageDoubleTap = () => {
     const now = Date.now();
     if (now - pageLastTap.current < 300) {
@@ -169,7 +222,6 @@ function App() {
     }
   };
 
-  // ✅ FIX 3: Message tap uses its OWN ref (msgLastTap) and tracks per-message ID
   const handleMsgTap = (e, m, isMe) => {
     e.stopPropagation();
     const now = Date.now();
@@ -177,27 +229,50 @@ function App() {
     const isDoubleTap = isSameMsg && (now - msgLastTap.current.time < 300);
 
     if (isDoubleTap) {
-      // Double tap → set reply
       setReplyingTo({
         text: m.text || "",
         image: m.image || null,
         senderName: isMe ? "You" : m.senderName
       });
       setSelectedMsg(null);
-      msgLastTap.current = { id: null, time: 0 }; // reset so triple tap doesn't re-trigger
+      msgLastTap.current = { id: null, time: 0 };
     } else {
-      // Single tap → select (for unsend) if own message
       if (isMe) setSelectedMsg(m._id);
       msgLastTap.current = { id: m._id, time: now };
     }
   };
 
   return (
-    <div style={styles.appViewport} onClick={() => setSelectedMsg(null)}>
+    <div style={{ ...styles.appViewport, overflow: 'hidden' }} onClick={() => setSelectedMsg(null)}>
+      
+      {/* Presence Glow Overlay */}
+      {isUnlocked && isPartnerPresent && (
+        <motion.div 
+          animate={{ opacity: [0.1, 0.4, 0.1], boxShadow: ['inset 0 0 20px #8a9a8e', 'inset 0 0 40px #8a9a8e', 'inset 0 0 20px #8a9a8e'] }}
+          transition={{ duration: 2, repeat: Infinity }}
+          style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 99 }}
+        />
+      )}
+
+      {/* Emoji Rain Overlay */}
       <AnimatePresence>
-        {showKiss && (
+        {emojiRain && [...Array(12)].map((_, i) => (
+          <motion.div
+            key={i}
+            initial={{ y: -50, x: Math.random() * window.innerWidth, opacity: 1, rotate: 0 }}
+            animate={{ y: window.innerHeight + 50, opacity: 0, rotate: 360 }}
+            transition={{ duration: 3 + Math.random() * 2, ease: "linear" }}
+            style={{ position: 'fixed', zIndex: 1000, fontSize: '30px' }}
+          >
+            {emojiRain}
+          </motion.div>
+        ))}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {(showKiss || pingHeart) && (
           <motion.div key="kiss" initial={{ scale: 0, opacity: 0 }} animate={{ scale: [0, 1.2, 5], opacity: [0, 1, 0] }} transition={{ duration: 2.2 }} style={styles.kissLayer}>
-            <span style={{ fontSize: '120px' }}>💋</span>
+            <span style={{ fontSize: '120px' }}>{showKiss ? '💋' : '❤️'}</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -214,17 +289,37 @@ function App() {
               </div>
             </div>
           </motion.div>
+        ) : isNotesOpen ? (
+          <motion.div key="notes" style={styles.chatPage}>
+             <div style={styles.chatHeader}>
+                <span style={{ color: '#fff', fontWeight: 'bold' }}>SHARED SECRETS</span>
+                <button onClick={() => setIsNotesOpen(false)} style={styles.lockBtn}>BACK</button>
+             </div>
+             <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+                  <input style={{ ...styles.input, flex: 1 }} placeholder="Secret note..." value={newNote} onChange={(e) => setNewNote(e.target.value)} />
+                  <button onClick={saveNote} style={styles.sendBtn}>+</button>
+                </div>
+                {notes.map((n) => (
+                  <div key={n._id} style={{ background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '12px', marginBottom: '10px', borderLeft: '3px solid #8a9a8e' }}>
+                    <div style={{ color: '#eee' }}>{n.content}</div>
+                  </div>
+                ))}
+             </div>
+          </motion.div>
         ) : (
-          // ✅ Page-level double tap uses handlePageDoubleTap (its own ref)
           <motion.div key="chat" style={styles.chatPage} onClick={handlePageDoubleTap}>
             <motion.div style={{ ...styles.atmosphere, background: moodColor }} animate={{ background: moodColor }} transition={{ duration: 3 }} />
 
             <div style={styles.chatHeader}>
               <div style={{ display: 'flex', alignItems: 'center' }}>
-                <div style={styles.statusDot} />
+                <div style={{ ...styles.statusDot, background: isPartnerPresent ? '#4caf50' : '#555' }} />
                 <span style={{ color: '#fff', fontWeight: 'bold' }}>VAULT</span>
               </div>
-              <button onClick={(e) => { e.stopPropagation(); setIsUnlocked(false); setCalcDisplay(""); }} style={styles.lockBtn}>EXIT</button>
+              <div style={{ display: 'flex', gap: '15px' }}>
+                <button onClick={sendHeartPing} style={{ background: 'none', border: 'none', fontSize: '18px' }}>💖</button>
+                <button onClick={(e) => { e.stopPropagation(); setIsUnlocked(false); setCalcDisplay(""); }} style={styles.lockBtn}>EXIT</button>
+              </div>
             </div>
 
             <div style={styles.messageList}>
@@ -232,8 +327,6 @@ function App() {
                 const isMe = m.senderId === currentUser.id;
                 const isSelected = selectedMsg === m._id;
                 const isMood = ["❤️", "🫂", "😁", "💋"].some(e => m.text?.includes(e));
-
-                // ✅ FIX 4: Check hasReply properly — works for both users
                 const hasReply = m.replyTo && (m.replyTo.text || m.replyTo.image);
 
                 return (
@@ -241,61 +334,15 @@ function App() {
                     <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
                       <AnimatePresence>
                         {isMe && isSelected && (
-                          <motion.button
-                            initial={{ scale: 0, x: 20 }} animate={{ scale: 1, x: 0 }} exit={{ scale: 0 }}
-                            onClick={() => unsend(m._id)}
-                            style={styles.unsendActionBtn}
-                          >
-                            Unsend
-                          </motion.button>
+                          <motion.button initial={{ scale: 0, x: 20 }} animate={{ scale: 1, x: 0 }} exit={{ scale: 0 }} onClick={() => unsend(m._id)} style={styles.unsendActionBtn}>Unsend</motion.button>
                         )}
                       </AnimatePresence>
 
-                      <div
-                        // ✅ FIX 5: Use dedicated handleMsgTap — no more shared lastTap conflict
-                        onClick={(e) => handleMsgTap(e, m, isMe)}
-                        style={{
-                          ...styles.bubble,
-                          // ✅ FIX 6: Prevent native text-selection menu from appearing on double tap
-                          userSelect: 'none',
-                          WebkitUserSelect: 'none',
-                          backgroundColor: isMe ? 'rgba(138, 154, 142, 0.92)' : 'rgba(26, 26, 26, 0.92)',
-                          color: isMe ? '#000' : '#fff',
-                          border: isSelected ? '1px solid #fff' : '1px solid rgba(255,255,255,0.08)'
-                        }}
-                      >
-                        {/* ✅ FIX 7: Reply preview — visible to BOTH users since it comes from DB */}
+                      <div onClick={(e) => handleMsgTap(e, m, isMe)} style={{ ...styles.bubble, userSelect: 'none', WebkitUserSelect: 'none', backgroundColor: isMe ? 'rgba(138, 154, 142, 0.92)' : 'rgba(26, 26, 26, 0.92)', color: isMe ? '#000' : '#fff', border: isSelected ? '1px solid #fff' : '1px solid rgba(255,255,255,0.08)' }}>
                         {hasReply && (
-                          <div style={{
-                            background: isMe ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)',
-                            padding: '8px 10px',
-                            borderRadius: '8px',
-                            borderLeft: `4px solid ${isMe ? '#444' : '#8a9a8e'}`,
-                            marginBottom: '8px',
-                            fontSize: '12px',
-                            backdropFilter: 'blur(5px)'
-                          }}>
-                            <div style={{
-                              fontWeight: 'bold',
-                              fontSize: '11px',
-                              color: isMe ? '#222' : '#8a9a8e',
-                              marginBottom: '2px'
-                            }}>
-                              {/* ✅ Show "You" if the reply-to sender matches current user's name */}
-                              {m.replyTo.senderName === currentUser.name ? "You" : m.replyTo.senderName}
-                            </div>
-                            <div style={{
-                              opacity: 0.8,
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              maxWidth: '150px'
-                            }}>
-                              {m.replyTo.text ? m.replyTo.text : "📷 Image"}
-                            </div>
-                            {m.replyTo.image && !m.replyTo.text && (
-                              <img src={m.replyTo.image} alt="reply" style={{ maxWidth: '60px', borderRadius: '6px', marginTop: '4px' }} />
-                            )}
+                          <div style={{ background: isMe ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)', padding: '8px 10px', borderRadius: '8px', borderLeft: `4px solid ${isMe ? '#444' : '#8a9a8e'}`, marginBottom: '8px', fontSize: '12px', backdropFilter: 'blur(5px)' }}>
+                            <div style={{ fontWeight: 'bold', fontSize: '11px', color: isMe ? '#222' : '#8a9a8e', marginBottom: '2px' }}>{m.replyTo.senderName === currentUser.name ? "You" : m.replyTo.senderName}</div>
+                            <div style={{ opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '150px' }}>{m.replyTo.text ? m.replyTo.text : "📷 Image"}</div>
                           </div>
                         )}
 
@@ -314,58 +361,24 @@ function App() {
               <div ref={chatEndRef} style={{ height: '10px' }} />
             </div>
 
-            {otherUserTyping && (
-              <div style={styles.typingIndicator}>
-                {currentUser.id === "9492" ? "Rahitha" : "Eusebio"} is typing...
-              </div>
-            )}
+            {otherUserTyping && <div style={styles.typingIndicator}>{currentUser.id === "9492" ? "Rahitha" : "Eusebio"} is typing...</div>}
 
             <AnimatePresence>
               {replyingTo && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  style={{
-                    padding: '10px 15px',
-                    background: 'rgba(30, 30, 30, 0.98)',
-                    borderLeft: '4px solid #8a9a8e',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    backdropFilter: 'blur(10px)',
-                    position: 'relative',
-                    zIndex: 10,
-                    borderTop: '1px solid rgba(255,255,255,0.1)'
-                  }}>
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} style={{ padding: '10px 15px', background: 'rgba(30, 30, 30, 0.98)', borderLeft: '4px solid #8a9a8e', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backdropFilter: 'blur(10px)', position: 'relative', zIndex: 10, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                   <div style={{ fontSize: '12px', color: '#ccc', flex: 1 }}>
-                    <div style={{ fontWeight: 'bold', color: '#8a9a8e' }}>
-                      Replying to {replyingTo.senderName}
-                    </div>
-                    <div style={{ opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '250px' }}>
-                      {replyingTo.text || "Image 📷"}
-                    </div>
+                    <div style={{ fontWeight: 'bold', color: '#8a9a8e' }}>Replying to {replyingTo.senderName}</div>
+                    <div style={{ opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '250px' }}>{replyingTo.text || "Image 📷"}</div>
                   </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setReplyingTo(null); }}
-                    style={{ background: 'none', border: 'none', color: '#fff', fontSize: '18px', cursor: 'pointer', marginLeft: '10px' }}
-                  >
-                    ✕
-                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); setReplyingTo(null); }} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '18px' }}>✕</button>
                 </motion.div>
               )}
             </AnimatePresence>
 
             <div style={styles.inputArea} onClick={(e) => e.stopPropagation()}>
               <input type="file" id="imgInput" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
-              <button onClick={() => document.getElementById('imgInput').click()} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer' }}>📷</button>
-              <input
-                style={styles.input}
-                value={message}
-                onChange={handleTyping}
-                placeholder="Message..."
-                onKeyPress={e => e.key === 'Enter' && sendText()}
-              />
+              <button onClick={() => document.getElementById('imgInput').click()} style={{ background: 'none', border: 'none', fontSize: '20px' }}>📷</button>
+              <input style={styles.input} value={message} onChange={handleTyping} placeholder="Message..." onKeyPress={e => e.key === 'Enter' && sendText()} />
               <button onClick={sendText} style={styles.sendBtn}>➔</button>
             </div>
           </motion.div>

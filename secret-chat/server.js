@@ -6,11 +6,21 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const admin = require('firebase-admin');
 
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-
+if (!admin.apps.length) {
+  try {
+    const decoded = Buffer.from(process.env.FB_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf8');
+    const serviceAccount = JSON.parse(decoded);
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+    console.log("✅ Firebase Admin Initialized Successfully");
+  } catch (error) {
+    console.error("Firebase Initialization Error:", error.message);
+  }
+}
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '50mb' })); // Increased limit for images
+app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 const server = http.createServer(app);
@@ -19,16 +29,13 @@ const io = new Server(server, {
   maxHttpBufferSize: 1e8
 });
 
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
-});
-
-// 1. Add Token Database Schema
+// 1. Token Database Schema
 const TokenSchema = new mongoose.Schema({ userId: String, token: String });
 const Token = mongoose.model('Token', TokenSchema);
 
-
+// NEW: Shared Notes Schema
+const NoteSchema = new mongoose.Schema({ content: String, timestamp: { type: Date, default: Date.now } });
+const Note = mongoose.model('Note', NoteSchema);
 
 mongoose.connect(process.env.MONGO_URI).then(() => console.log("Vault DB Connected"));
 
@@ -39,7 +46,6 @@ const MessageSchema = new mongoose.Schema({
   senderName: String,
   seen: { type: Boolean, default: false },
   timestamp: { type: Date, default: Date.now },
-  // Explicitly defined sub-document
   replyTo: {
     text: { type: String, default: "" },
     image: { type: String, default: null },
@@ -54,61 +60,110 @@ app.get('/messages', async (req, res) => {
   res.json(messages.reverse());
 });
 
-// Seen logic from old code
 app.post('/seen', async (req, res) => {
   await Message.updateMany({ senderId: { $ne: req.body.userId }, seen: false }, { $set: { seen: true } });
   io.emit('messages_seen');
   res.sendStatus(200);
 });
 
-// 2. Add endpoint to save the token
 app.post('/save-token', async (req, res) => {
   const { userId, token } = req.body;
   await Token.findOneAndUpdate({ userId }, { token }, { upsert: true });
   res.sendStatus(200);
 });
 
+// NEW: Shared Notes Endpoints
+app.get('/notes', async (req, res) => {
+  const notes = await Note.find().sort({ timestamp: -1 });
+  res.json(notes);
+});
+
+app.post('/notes', async (req, res) => {
+  const newNote = new Note({ content: req.body.content });
+  await newNote.save();
+  io.emit('note_updated');
+  res.sendStatus(200);
+});
+
+let activeUsers = {};
 
 io.on('connection', (socket) => {
+  socket.on('user_active', (userId) => {
+    activeUsers[socket.id] = userId;
+    io.emit('presence_update', Object.values(activeUsers));
+  });
+
   socket.on('send_message', async (data) => {
     try {
-const newMessage = new Message({
-      text: data.text,
-      image: data.image,
-      senderId: data.senderId,
-      senderName: data.senderName,
-      replyTo: data.replyTo ? {
-        text: data.replyTo.text || "",
-        image: data.replyTo.image || null,
-        senderName: data.replyTo.senderName || ""
-      } : null,
-      timestamp: new Date(),
-      seen: false
-    });
+      const newMessage = new Message({
+        text: data.text,
+        image: data.image,
+        senderId: data.senderId,
+        senderName: data.senderName,
+        replyTo: data.replyTo ? {
+          text: data.replyTo.text || "",
+          image: data.replyTo.image || null,
+          senderName: data.replyTo.senderName || ""
+        } : null,
+        timestamp: new Date(),
+        seen: false
+      });
 
-    const savedMessage = await newMessage.save();
-    // Use io.emit so EVERYONE (including the sender) gets the updated message object from the DB
-    io.emit('receive_message', savedMessage);
+      const savedMessage = await newMessage.save();
+      io.emit('receive_message', savedMessage);
 
-      // --- BROADCAST NOTIFICATION LOGIC ---
-      // 1. Find all tokens EXCEPT the sender
       const otherTokens = await Token.find({ userId: { $ne: data.senderId } });
-
       if (otherTokens.length > 0) {
         otherTokens.forEach(t => {
           admin.messaging().send({
             notification: {
-              title: `Vault: ${data.senderName}`,
-              body: data.text || "Sent an image 📷"
+              title: `Update Alert`,
+              body: 'go check it out'
             },
-            token: t.token // Send to this specific token
+            token: t.token
           }).catch(e => console.log("Push failed for a token:", e));
         });
-        console.log(`Attempted to send notifications to ${otherTokens.length} devices.`);
       }
     } catch (err) { console.error(err); }
   });
 
+  // NEW: Heart Ping
+  socket.on('heart_ping', async (data) => {
+    const senderId = data.from;
+    try {
+      const partner = await Token.findOne({ userId: { $ne: senderId } });
+
+      if (partner) {
+        const message = {
+          notification: {
+            title: "System Update",
+            body: "Tap to sync settings",
+          },
+          android: {
+            priority: "high",
+            notification: {
+              sound: "default",
+              vibrate_timings: ["0.2s", "0.1s", "0.2s"],  // seconds, not ms
+            }
+          },
+          apns: {
+            payload: {
+              aps: {
+                sound: "default",
+                "content-available": 1
+              }
+            }
+          },
+          token: partner.token
+        };
+
+        await admin.messaging().send(message);
+      }
+      socket.broadcast.emit('receive_heart_ping', data);
+    } catch (error) {
+      console.error("FCM Error:", error);
+    }
+  });
 
   socket.on('delete_message', async (msgId) => {
     await Message.findByIdAndDelete(msgId);
@@ -117,6 +172,11 @@ const newMessage = new Message({
 
   socket.on('typing', (data) => {
     socket.broadcast.emit('display_typing', data);
+  });
+
+  socket.on('disconnect', () => {
+    delete activeUsers[socket.id];
+    io.emit('presence_update', Object.values(activeUsers));
   });
 });
 
