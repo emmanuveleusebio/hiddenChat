@@ -9,23 +9,32 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
   const remoteAudio = useRef(new Audio());
   const currentCall = useRef(null);
 
-  useEffect(() => {
-    // FIX 1: Use PeerJS Cloud (no host/port needed)
+useEffect(() => {
     myPeer.current = new Peer(currentUser.id + "-voice");
 
     myPeer.current.on('open', (id) => {
       console.log("Voice Peer ID:", id);
+      // 🔥 THIS IS THE MISSING LINK:
+      // Tell the server to put this socket into its private voice room
+      socket.emit('join-voice', currentUser.id); 
     });
 
-    // Handle Incoming Calls
     myPeer.current.on('call', (incomingCall) => {
       currentCall.current = incomingCall;
       setCallStatus('ringing');
     });
 
-    // Socket listeners for signaling
-    socket.on('incoming-call', () => setCallStatus('ringing'));
-    socket.on('call-accepted', () => setCallStatus('oncall'));
+    // Handle the signal coming from the server
+    socket.on('incoming-call', (data) => {
+      console.log("Incoming call signal received!");
+      setCallStatus('ringing');
+    });
+
+    socket.on('call-accepted', () => {
+      console.log("Call was accepted by partner");
+      setCallStatus('oncall');
+    });
+
     socket.on('call-ended', stopCall);
 
     return () => {
@@ -34,7 +43,7 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
       socket.off('call-ended');
       myPeer.current?.destroy();
     };
-  }, [currentUser.id]);
+  }, [currentUser.id]); // currentUser.id ensures it re-runs if user changes
 
   const startCall = async () => {
     try {

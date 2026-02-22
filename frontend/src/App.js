@@ -322,21 +322,30 @@ function App() {
         ) : (
           <motion.div key="chat" style={styles.chatPage} onClick={handlePageDoubleTap}>
             <motion.div style={{ ...styles.atmosphere, background: moodColor }} animate={{ background: moodColor }} transition={{ duration: 3 }} />
-            <div style={styles.chatHeader}>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <div style={{ ...styles.statusDot, background: isPartnerPresent ? '#4caf50' : '#555' }} />
-                <span style={{ color: '#fff', fontWeight: 'bold' }}>VAULT</span>
-              </div>
-              <div style={{ display: 'flex', gap: '15px' }}>
-                <button onClick={sendHeartPing} style={{ background: 'none', border: 'none', fontSize: '18px' }}>💖</button>
-                <button onClick={(e) => { e.stopPropagation(); setIsUnlocked(false); setCalcDisplay(""); }} style={styles.lockBtn}>EXIT</button>
-                <VoiceCall
-                  socket={socket}
-                  currentUser={currentUser}
-                  partnerId={currentUser.id === "9492" ? "9746" : "9492"}
-                />
-              </div>
-            </div>
+// ... inside your chat motion.div
+<div style={styles.chatHeader}>
+  {/* Left Side: Vault Status */}
+  <div style={{ display: 'flex', alignItems: 'center' }}>
+    <div style={{ ...styles.statusDot, background: isPartnerPresent ? '#4caf50' : '#555' }} />
+    <span style={{ color: '#fff', fontWeight: 'bold' }}>VAULT</span>
+  </div>
+
+  {/* Right Side: Action Row */}
+  <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+    {/* Voice Call first in the row */}
+    <VoiceCall 
+      socket={socket} 
+      currentUser={currentUser} 
+      partnerId={currentUser.id === "9492" ? "9746" : "9492"} 
+    />
+    
+    {/* Love Icon second */}
+    <button onClick={sendHeartPing} style={{ background: 'none', border: 'none', fontSize: '18px', padding: 0, cursor: 'pointer', display: 'flex' }}>💖</button>
+    
+    {/* Exit button last */}
+    <button onClick={(e) => { e.stopPropagation(); setIsUnlocked(false); setCalcDisplay(""); }} style={styles.lockBtn}>EXIT</button>
+  </div>
+</div>
             <div style={styles.messageList}>
               {chatLog.map((m, i) => {
                 const isMe = m.senderId === currentUser.id;

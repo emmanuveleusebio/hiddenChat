@@ -9,6 +9,7 @@ export const styles = {
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif',
     position: 'relative'
   },
+
   calcPage: { 
     height: '100%', 
     display: 'flex', 
@@ -82,7 +83,8 @@ export const styles = {
     padding: '70px 24px 15px', display: 'flex', justifyContent: 'space-between', 
     alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', 
     backgroundColor: 'rgba(10, 10, 10, 0.8)', backdropFilter: 'blur(10px)',
-    zIndex: 10, flexShrink: 0 
+    zIndex: 10, flexShrink: 0 ,
+    position:'relative'
   },
   statusDot: { 
     width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4ade80', 
