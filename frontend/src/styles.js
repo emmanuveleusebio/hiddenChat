@@ -79,7 +79,7 @@ export const styles = {
     zIndex: 100, pointerEvents: 'none'
   },
   chatHeader: { 
-    padding: '20px 24px 15px', display: 'flex', justifyContent: 'space-between', 
+    padding: '70px 24px 15px', display: 'flex', justifyContent: 'space-between', 
     alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', 
     backgroundColor: 'rgba(10, 10, 10, 0.8)', backdropFilter: 'blur(10px)',
     zIndex: 10, flexShrink: 0 
