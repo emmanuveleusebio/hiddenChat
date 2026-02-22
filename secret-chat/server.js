@@ -112,18 +112,18 @@ io.on('connection', (socket) => {
       const savedMessage = await newMessage.save();
       io.emit('receive_message', savedMessage);
 
-      const otherTokens = await Token.find({ userId: { $ne: data.senderId } });
-      if (otherTokens.length > 0) {
-        otherTokens.forEach(t => {
-          admin.messaging().send({
-            notification: {
-              title: `Update Alert`,
-              body: 'go check it out'
-            },
-            token: t.token
-          }).catch(e => console.log("Push failed for a token:", e));
-        });
-      }
+      // const otherTokens = await Token.find({ userId: { $ne: data.senderId } });
+      // if (otherTokens.length > 0) {
+      //   otherTokens.forEach(t => {
+      //     admin.messaging().send({
+      //       notification: {
+      //         title: `Update Alert`,
+      //         body: 'go check it out'
+      //       },
+      //       token: t.token
+      //     }).catch(e => console.log("Push failed for a token:", e));
+      //   });
+      // }
     } catch (err) { console.error(err); }
   });
 
