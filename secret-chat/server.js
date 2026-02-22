@@ -158,6 +158,7 @@ io.on('connection', (socket) => {
         };
 
         await admin.messaging().send(message);
+        console.log('message send successfully ============================================================')
       }
       socket.broadcast.emit('receive_heart_ping', data);
     } catch (error) {
