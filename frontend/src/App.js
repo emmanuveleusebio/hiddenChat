@@ -4,6 +4,7 @@ import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { styles } from './styles';
 import { requestForToken } from './firebase-config';
+import VoiceCall from './VoiceCall';
 
 const API_BASE = window.location.hostname === "localhost" ? "http://localhost:5000" : "https://calcsocket.onrender.com";
 const socket = io.connect(API_BASE);
@@ -36,7 +37,7 @@ function App() {
   useEffect(() => {
     if (isUnlocked && currentUser) {
       requestForToken(currentUser.id, API_BASE);
-      socket.emit('user_active', currentUser.id); 
+      socket.emit('user_active', currentUser.id);
     }
   }, [isUnlocked, currentUser]);
 
@@ -100,10 +101,10 @@ function App() {
   }, [isUnlocked, currentUser]);
 
   useEffect(() => {
-    if (isUnlocked && currentUser) { 
-      fetchMessages(); 
+    if (isUnlocked && currentUser) {
+      fetchMessages();
       fetchNotes();
-      markAsSeen(currentUser.id); 
+      markAsSeen(currentUser.id);
     }
   }, [isUnlocked, currentUser]);
 
@@ -190,10 +191,10 @@ function App() {
       if (isNaN(val)) return;
       let res;
       switch (type) {
-        case 'TAX+': res = val * 1.18; break; 
-        case 'TAX-': res = val / 1.18; break; 
-        case 'MAR':  res = val / 0.8; break;  
-        case 'ROI':  res = val * 1.10; break; 
+        case 'TAX+': res = val * 1.18; break;
+        case 'TAX-': res = val / 1.18; break;
+        case 'MAR': res = val / 0.8; break;
+        case 'ROI': res = val * 1.10; break;
         default: return;
       }
       setCalcDisplay(Number(res.toFixed(2)).toString());
@@ -250,7 +251,7 @@ function App() {
   return (
     <div style={{ ...styles.appViewport, overflow: 'hidden' }} onClick={() => setSelectedMsg(null)}>
       {isUnlocked && isPartnerPresent && (
-        <motion.div 
+        <motion.div
           animate={{ opacity: [0.1, 0.4, 0.1], boxShadow: ['inset 0 0 20px #8a9a8e', 'inset 0 0 40px #8a9a8e', 'inset 0 0 20px #8a9a8e'] }}
           transition={{ duration: 2, repeat: Infinity }}
           style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 99 }}
@@ -284,13 +285,13 @@ function App() {
               <div style={styles.calcScrollArea} className="hide-scrollbar">
                 <div style={styles.calcGrid}>
                   {["C", "/", "*", "-", "7", "8", "9", "+", "4", "5", "6", "(", "1", "2", "3", ")", "0", ".", "=", "TAX+", "TAX-", "MAR", "ROI"].map(btn => (
-                    <button 
-                      key={btn} 
-                      onClick={() => handlePress(btn)} 
-                      style={{ 
-                        ...styles.calcBtn, 
+                    <button
+                      key={btn}
+                      onClick={() => handlePress(btn)}
+                      style={{
+                        ...styles.calcBtn,
                         ...(btn === "=" ? styles.equalBtn : {}),
-                        ...(btn.length > 2 ? { fontSize: '13px', color: '#8a9a8e', backgroundColor: '#1a1a1a' } : {}) 
+                        ...(btn.length > 2 ? { fontSize: '13px', color: '#8a9a8e', backgroundColor: '#1a1a1a' } : {})
                       }}
                     >
                       {btn}
@@ -302,21 +303,21 @@ function App() {
           </motion.div>
         ) : isNotesOpen ? (
           <motion.div key="notes" style={styles.chatPage}>
-             <div style={styles.chatHeader}>
-                <span style={{ color: '#fff', fontWeight: 'bold' }}>SHARED SECRETS</span>
-                <button onClick={() => setIsNotesOpen(false)} style={styles.lockBtn}>BACK</button>
-             </div>
-             <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-                  <input style={{ ...styles.input, flex: 1 }} placeholder="Secret note..." value={newNote} onChange={(e) => setNewNote(e.target.value)} />
-                  <button onClick={saveNote} style={styles.sendBtn}>+</button>
+            <div style={styles.chatHeader}>
+              <span style={{ color: '#fff', fontWeight: 'bold' }}>SHARED SECRETS</span>
+              <button onClick={() => setIsNotesOpen(false)} style={styles.lockBtn}>BACK</button>
+            </div>
+            <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
+              <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+                <input style={{ ...styles.input, flex: 1 }} placeholder="Secret note..." value={newNote} onChange={(e) => setNewNote(e.target.value)} />
+                <button onClick={saveNote} style={styles.sendBtn}>+</button>
+              </div>
+              {notes.map((n) => (
+                <div key={n._id} style={{ background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '12px', marginBottom: '10px', borderLeft: '3px solid #8a9a8e' }}>
+                  <div style={{ color: '#eee' }}>{n.content}</div>
                 </div>
-                {notes.map((n) => (
-                  <div key={n._id} style={{ background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '12px', marginBottom: '10px', borderLeft: '3px solid #8a9a8e' }}>
-                    <div style={{ color: '#eee' }}>{n.content}</div>
-                  </div>
-                ))}
-             </div>
+              ))}
+            </div>
           </motion.div>
         ) : (
           <motion.div key="chat" style={styles.chatPage} onClick={handlePageDoubleTap}>
@@ -329,6 +330,11 @@ function App() {
               <div style={{ display: 'flex', gap: '15px' }}>
                 <button onClick={sendHeartPing} style={{ background: 'none', border: 'none', fontSize: '18px' }}>💖</button>
                 <button onClick={(e) => { e.stopPropagation(); setIsUnlocked(false); setCalcDisplay(""); }} style={styles.lockBtn}>EXIT</button>
+                <VoiceCall
+                  socket={socket}
+                  currentUser={currentUser}
+                  partnerId={currentUser.id === "9492" ? "9746" : "9492"}
+                />
               </div>
             </div>
             <div style={styles.messageList}>
