@@ -29,6 +29,8 @@ const io = new Server(server, {
   maxHttpBufferSize: 1e8
 });
 
+
+
 // 1. Token Database Schema
 const TokenSchema = new mongoose.Schema({ userId: String, token: String });
 const Token = mongoose.model('Token', TokenSchema);
@@ -88,6 +90,7 @@ app.post('/notes', async (req, res) => {
 let activeUsers = {};
 
 io.on('connection', (socket) => {
+  require('./voiceSignals')(io, socket);
   socket.on('user_active', (userId) => {
     activeUsers[socket.id] = userId;
     io.emit('presence_update', Object.values(activeUsers));
