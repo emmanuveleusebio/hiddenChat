@@ -4,6 +4,7 @@ import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { styles } from './styles';
 import { requestForToken } from './firebase-config';
+import VoiceCall from './VoiceCall';
 
 const API_BASE = window.location.hostname === "localhost" ? "http://localhost:5000" : "https://calcsocket.onrender.com";
 const socket = io.connect(API_BASE);
@@ -32,6 +33,7 @@ function App() {
   const chatEndRef = useRef(null);
   const pageLastTap = useRef(0);
   const msgLastTap = useRef({ id: null, time: 0 });
+  const partnerId = currentUser?.id === "9492" ? "9746" : "9492";
 
   useEffect(() => {
     if (isUnlocked && currentUser) {
@@ -327,6 +329,11 @@ function App() {
                 <span style={{ color: '#fff', fontWeight: 'bold' }}>VAULT</span>
               </div>
               <div style={{ display: 'flex', gap: '15px' }}>
+                <VoiceCall 
+      socket={socket} 
+      currentUser={currentUser} 
+      partnerId={partnerId} 
+    />
                 <button onClick={sendHeartPing} style={{ background: 'none', border: 'none', fontSize: '18px' }}>💖</button>
                 <button onClick={(e) => { e.stopPropagation(); setIsUnlocked(false); setCalcDisplay(""); }} style={styles.lockBtn}>EXIT</button>
               </div>
