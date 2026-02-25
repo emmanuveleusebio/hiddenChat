@@ -1,202 +1,294 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import Peer from 'peerjs';
 import { motion, AnimatePresence } from 'framer-motion';
 
+// ─── ICE / STUN config ────────────────────────────────────────────────────────
+// FIX #2: Added proper STUN servers so peers can connect across different networks/NAT
+const PEER_CONFIG = {
+  debug: 2,
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+    ],
+  },
+};
+
 const VoiceCall = ({ socket, currentUser, partnerId }) => {
   const [callStatus, setCallStatus] = useState('idle');
-  const myPeer = useRef(null);
-  const localStream = useRef(null);
-  const remoteAudio = useRef(new Audio());
-  const currentCall = useRef(null);
-  const callerPeerId = useRef(null); // stores incoming caller's peer id (used by callee)
+  // 'idle' | 'calling' | 'ringing' | 'connecting' | 'oncall'
+
+  const peerRef         = useRef(null);
+  const localStreamRef  = useRef(null);
+  const remoteAudio     = useRef(new Audio());
+  const currentCallRef  = useRef(null);
+  const ringTimerRef    = useRef(null);
+  const callTimerRef    = useRef(null);
+  const [callSeconds, setCallSeconds] = useState(0);
+
+  // FIX #3: Re-join voice room on every socket connect (handles reconnections too)
+  const joinVoiceRoom = useCallback(() => {
+    socket.emit('join-voice', currentUser.id);
+    console.log('[Voice] Joined voice room for', currentUser.id);
+  }, [socket, currentUser.id]);
 
   useEffect(() => {
-    // Initialize PeerJS with a stable ID
-    myPeer.current = new Peer(currentUser.id + '-voice', {
-      debug: 2,
-    });
+    joinVoiceRoom();
+    socket.on('connect', joinVoiceRoom);
+    return () => socket.off('connect', joinVoiceRoom);
+  }, [joinVoiceRoom, socket]);
 
-    myPeer.current.on('open', (id) => {
-      console.log('Voice Peer opened:', id);
-      socket.emit('join-voice', currentUser.id);
-    });
+  // ─── helpers ────────────────────────────────────────────────────────────────
 
-    myPeer.current.on('error', (err) => {
-      console.error('PeerJS error:', err);
-    });
-
-    // ─── CALLEE SIDE ──────────────────────────────────────────────────────────
-    // This fires when the CALLER does peer.call() — happens after callee emits answer-call
-    myPeer.current.on('call', (incomingCall) => {
-      console.log('PeerJS: incoming call received (answerer side)');
-      if (localStream.current) {
-        // We already got mic access in answerCall(), so answer immediately
-        incomingCall.answer(localStream.current);
-        setupCallListeners(incomingCall);
-      } else {
-        // Fallback: store and answer once stream is ready (shouldn't normally happen)
-        currentCall.current = incomingCall;
-      }
-    });
-
-    // ─── SOCKET SIGNALS ───────────────────────────────────────────────────────
-
-    // Callee receives this → show ringing UI
-    socket.on('incoming-call', ({ from, peerId }) => {
-      console.log('Socket: incoming-call from', from, 'peerId:', peerId);
-      callerPeerId.current = peerId; // store caller's peerId so we can dial back if needed
-      setCallStatus('ringing');
-    });
-
-    // Caller receives this after callee answers → now initiate the PeerJS call
-    socket.on('call-accepted', ({ peerId: calleePeerId }) => {
-      console.log('Socket: call-accepted, callee peerId:', calleePeerId);
-      setCallStatus('oncall');
-
-      if (myPeer.current && localStream.current && calleePeerId) {
-        console.log('Caller: initiating peer.call() to', calleePeerId);
-        const call = myPeer.current.call(calleePeerId, localStream.current);
-        setupCallListeners(call);
-      }
-    });
-
-    socket.on('call-ended', () => {
-      console.log('Socket: call-ended received');
-      stopCall();
-    });
-
-    return () => {
-      socket.off('incoming-call');
-      socket.off('call-accepted');
-      socket.off('call-ended');
-      myPeer.current?.destroy();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // FIX #1 + #7: Create a FRESH peer with a DYNAMIC ID every call so we never
+  // hit "ID already taken" after a failed/dropped call.
+  const createFreshPeer = useCallback(() => {
+    if (peerRef.current && !peerRef.current.destroyed) {
+      try { peerRef.current.destroy(); } catch (_) {}
+    }
+    // Unique ID: userId + timestamp ensures no collisions on retry
+    const peerId = `${currentUser.id}-${Date.now()}`;
+    const peer = new Peer(peerId, PEER_CONFIG);
+    peerRef.current = peer;
+    console.log('[Voice] Created peer:', peerId);
+    return peer;
   }, [currentUser.id]);
 
-  // ─── CALLER initiates the call ─────────────────────────────────────────────
+  const cleanupAll = useCallback(() => {
+    clearTimeout(ringTimerRef.current);
+    clearInterval(callTimerRef.current);
+    setCallSeconds(0);
+
+    localStreamRef.current?.getTracks().forEach(t => t.stop());
+    localStreamRef.current = null;
+
+    try { currentCallRef.current?.close(); } catch (_) {}
+    currentCallRef.current = null;
+
+    remoteAudio.current.pause();
+    remoteAudio.current.srcObject = null;
+
+    if (peerRef.current && !peerRef.current.destroyed) {
+      try { peerRef.current.destroy(); } catch (_) {}
+    }
+    peerRef.current = null;
+  }, []);
+
+  const stopCall = useCallback((e, skipEmit = false) => {
+    if (e?.stopPropagation) e.stopPropagation();
+    console.log('[Voice] stopCall, skipEmit:', skipEmit);
+    cleanupAll();
+    setCallStatus('idle');
+    if (!skipEmit) {
+      socket.emit('end-voice-call', { to: partnerId });
+    }
+  }, [cleanupAll, socket, partnerId]);
+
+  // Called once we have a live MediaConnection on either side
+  const attachCallListeners = useCallback((call) => {
+    currentCallRef.current = call;
+
+    call.on('stream', (remoteStream) => {
+      console.log('[Voice] Remote stream arrived ✓');
+      remoteAudio.current.srcObject = remoteStream;
+      remoteAudio.current.play().catch(err => console.warn('[Voice] Audio play blocked:', err));
+
+      // FIX #4: Only move to 'oncall' when the audio stream actually arrives
+      setCallStatus('oncall');
+      let secs = 0;
+      callTimerRef.current = setInterval(() => setCallSeconds(++secs), 1000);
+    });
+
+    call.on('close', () => {
+      console.log('[Voice] PeerJS call closed');
+      stopCall(null, true);
+    });
+
+    call.on('error', (err) => {
+      console.error('[Voice] PeerJS call error:', err);
+      stopCall(null, true);
+    });
+  }, [stopCall]);
+
+  // ─── Socket signal handlers ──────────────────────────────────────────────────
+  useEffect(() => {
+    // FIX #8: Use named handler references so we only remove OUR listener
+    const onIncomingCall = ({ from, peerId: callerPeerId }) => {
+      console.log('[Voice] incoming-call from', from, 'peer:', callerPeerId);
+      // Store caller's peerId so answerCall can use it
+      callerPeerIdRef.current = callerPeerId;
+      setCallStatus('ringing');
+      // Auto-decline after 30s
+      clearTimeout(ringTimerRef.current);
+      ringTimerRef.current = setTimeout(() => {
+        // FIX #6: use functional state check inside callback to avoid stale closure
+        setCallStatus(prev => {
+          if (prev === 'ringing') {
+            stopCall(null);
+            return 'idle';
+          }
+          return prev;
+        });
+      }, 30000);
+    };
+
+    // Caller receives this when callee accepts
+    const onCallAccepted = ({ peerId: calleePeerId }) => {
+      console.log('[Voice] call-accepted, callee peer:', calleePeerId);
+      clearTimeout(ringTimerRef.current);
+
+      if (!localStreamRef.current) {
+        console.error('[Voice] No local stream when call accepted!');
+        stopCall(null);
+        return;
+      }
+
+      // FIX #5: Create a fresh peer and wait for it to open BEFORE calling
+      const peer = createFreshPeer();
+      peer.on('open', () => {
+        console.log('[Voice] Caller peer open, calling callee peer:', calleePeerId);
+        const call = peer.call(calleePeerId, localStreamRef.current);
+        if (!call) {
+          console.error('[Voice] peer.call() returned null');
+          stopCall(null);
+          return;
+        }
+        attachCallListeners(call);
+      });
+      peer.on('error', (err) => {
+        console.error('[Voice] Caller peer error:', err);
+        stopCall(null, true);
+      });
+    };
+
+    const onCallEnded = () => {
+      console.log('[Voice] call-ended from partner');
+      stopCall(null, true);
+    };
+
+    socket.on('incoming-call',  onIncomingCall);
+    socket.on('call-accepted',  onCallAccepted);
+    socket.on('call-ended',     onCallEnded);
+
+    return () => {
+      socket.off('incoming-call',  onIncomingCall);
+      socket.off('call-accepted',  onCallAccepted);
+      socket.off('call-ended',     onCallEnded);
+    };
+  }, [currentUser.id, createFreshPeer, attachCallListeners, stopCall, socket]);
+
+  // Stores the caller's PeerJS ID so answerCall can use it
+  const callerPeerIdRef = useRef(null);
+
+  // ─── Caller: start call ──────────────────────────────────────────────────────
   const startCall = async (e) => {
     e.stopPropagation();
     try {
-      console.log('Caller: requesting mic...');
+      console.log('[Voice] Requesting mic...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      localStream.current = stream;
+      localStreamRef.current = stream;
       setCallStatus('calling');
 
-      const myPeerId = currentUser.id + '-voice';
+      // Emit signal to callee — no peerId needed yet (we create peer only after acceptance)
       socket.emit('call-user', {
         to: partnerId,
         from: currentUser.id,
-        peerId: myPeerId,
+        peerId: 'pending', // callee doesn't need caller's peerId anymore
       });
-      console.log('Caller: emitted call-user to', partnerId);
+      console.log('[Voice] call-user emitted to', partnerId);
+
+      // Cancel if no answer in 30s
+      clearTimeout(ringTimerRef.current);
+      ringTimerRef.current = setTimeout(() => {
+        setCallStatus(prev => {
+          if (prev === 'calling') { stopCall(null); return 'idle'; }
+          return prev;
+        });
+      }, 30000);
     } catch (err) {
-      console.error('Mic access denied:', err);
+      console.error('[Voice] Mic denied:', err);
       setCallStatus('idle');
     }
   };
 
-  // ─── CALLEE answers the call ───────────────────────────────────────────────
+  // ─── Callee: answer call ─────────────────────────────────────────────────────
   const answerCall = async (e) => {
     e.stopPropagation();
+    clearTimeout(ringTimerRef.current);
+
     try {
-      console.log('Callee: requesting mic...');
+      console.log('[Voice] Callee requesting mic...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      localStream.current = stream;
+      localStreamRef.current = stream;
 
-      // If PeerJS call already arrived before we had stream, answer it now
-      if (currentCall.current) {
-        currentCall.current.answer(stream);
-        setupCallListeners(currentCall.current);
-      }
+      // FIX #1 + #5: Create fresh peer, wait for open, THEN tell caller our peerId
+      const peer = createFreshPeer();
+      setCallStatus('connecting');
 
-      // Tell the caller we accepted — send our peerId so caller can peer.call() us
-      const myPeerId = currentUser.id + '-voice';
-      socket.emit('answer-call', { to: partnerId, peerId: myPeerId });
-      console.log('Callee: emitted answer-call with peerId', myPeerId);
+      peer.on('open', (myPeerId) => {
+        console.log('[Voice] Callee peer open:', myPeerId, '— sending answer-call');
+        socket.emit('answer-call', { to: partnerId, peerId: myPeerId });
+      });
 
-      setCallStatus('oncall');
+      // Caller will now do peer.call() → this fires when they do
+      peer.on('call', (incomingCall) => {
+        console.log('[Voice] PeerJS call received by callee, answering...');
+        incomingCall.answer(localStreamRef.current);
+        attachCallListeners(incomingCall);
+      });
+
+      peer.on('error', (err) => {
+        console.error('[Voice] Callee peer error:', err);
+        stopCall(null, true);
+      });
     } catch (err) {
-      console.error('Error answering call:', err);
+      console.error('[Voice] Callee mic error:', err);
+      stopCall(null);
     }
   };
 
-  const setupCallListeners = (call) => {
-    if (!call) return;
-    currentCall.current = call;
-
-    call.on('stream', (userAudioStream) => {
-      console.log('Got remote audio stream!');
-      remoteAudio.current.srcObject = userAudioStream;
-      remoteAudio.current
-        .play()
-        .catch((e) => console.warn('Audio play blocked:', e));
-    });
-
-    call.on('close', () => {
-      console.log('PeerJS call closed');
-      stopCall();
-    });
-
-    call.on('error', (err) => {
-      console.error('PeerJS call error:', err);
-      stopCall();
-    });
-  };
-
-  const stopCall = (e) => {
-    if (e && e.stopPropagation) e.stopPropagation();
-    console.log('Stopping call...');
-    localStream.current?.getTracks().forEach((track) => track.stop());
-    localStream.current = null;
-    currentCall.current?.close();
-    currentCall.current = null;
-    remoteAudio.current.srcObject = null;
-    callerPeerId.current = null;
-    setCallStatus('idle');
-    socket.emit('end-voice-call', { to: partnerId });
-  };
-
-  // ─── UI ───────────────────────────────────────────────────────────────────
+  // ─── UI ───────────────────────────────────────────────────────────────────────
   const partnerName = currentUser.id === '9492' ? 'Rahitha' : 'Eusebio';
-  const callerLabel = currentUser.id === '9492' ? 'Eusebio' : 'Rahitha';
+  const callerName  = currentUser.id === '9492' ? 'Eusebio' : 'Rahitha';
+
+  const formatTime = (s) => `${String(Math.floor(s / 60)).padStart(2,'0')}:${String(s % 60).padStart(2,'0')}`;
 
   return (
     <>
-      {/* Ringing overlay (callee sees this) */}
+      {/* ── RINGING (callee sees) ─────────────────────────────────────────────── */}
       <AnimatePresence>
         {callStatus === 'ringing' && (
           <motion.div
-            key="ringingOverlay"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            key="ringing"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={(e) => e.stopPropagation()}
-            style={voiceStyles.fullscreenOverlay}
+            style={vs.overlay}
           >
             <motion.div
               initial={{ scale: 0.7, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.7, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 260, damping: 20 }}
-              style={voiceStyles.ringingCard}
+              style={vs.card}
             >
               <motion.div
-                animate={{ scale: [1, 1.3, 1], opacity: [0.6, 0, 0.6] }}
+                animate={{ scale: [1, 1.4, 1], opacity: [0.5, 0, 0.5] }}
                 transition={{ duration: 1.5, repeat: Infinity }}
-                style={voiceStyles.pulseRing}
+                style={vs.pulse}
               />
-              <div style={voiceStyles.avatarCircle}>📞</div>
-              <p style={voiceStyles.callingText}>Incoming Call</p>
-              <p style={voiceStyles.callerName}>{callerLabel}</p>
-              <div style={voiceStyles.ringingBtns}>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
-                  <button onClick={stopCall} style={voiceStyles.declineBtn}>✕</button>
-                  <span style={voiceStyles.btnLabel}>Decline</span>
+              <div style={vs.avatar}>📞</div>
+              <p style={vs.subText}>Incoming Call</p>
+              <p style={vs.nameText}>{callerName}</p>
+              <div style={vs.btnRow}>
+                <div style={vs.btnCol}>
+                  <button onClick={(e) => stopCall(e)} style={vs.declineBtn}>✕</button>
+                  <span style={vs.btnLabel}>Decline</span>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
-                  <button onClick={answerCall} style={voiceStyles.acceptBtn}>✓</button>
-                  <span style={voiceStyles.btnLabel}>Accept</span>
+                <div style={vs.btnCol}>
+                  <button onClick={answerCall} style={vs.acceptBtn}>✓</button>
+                  <span style={vs.btnLabel}>Accept</span>
                 </div>
               </div>
             </motion.div>
@@ -204,212 +296,166 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
         )}
       </AnimatePresence>
 
-      {/* On-call overlay */}
-      <AnimatePresence>
-        {callStatus === 'oncall' && (
-          <motion.div
-            key="onCallOverlay"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={(e) => e.stopPropagation()}
-            style={voiceStyles.fullscreenOverlay}
-          >
-            <motion.div
-              initial={{ scale: 0.7, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.7, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 260, damping: 20 }}
-              style={voiceStyles.ringingCard}
-            >
-              <motion.div
-                animate={{ scale: [1, 1.1, 1] }}
-                transition={{ duration: 2, repeat: Infinity }}
-                style={voiceStyles.avatarCircle}
-              >
-                🎙️
-              </motion.div>
-              <p style={voiceStyles.callingText}>In Call</p>
-              <p style={voiceStyles.callerName}>{partnerName}</p>
-              <button
-                onClick={stopCall}
-                style={{ ...voiceStyles.declineBtn, marginTop: '20px', width: '60px', height: '60px', fontSize: '22px' }}
-              >
-                ✕
-              </button>
-              <span style={{ ...voiceStyles.btnLabel, marginTop: '6px' }}>End Call</span>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Calling overlay (caller sees this while waiting) */}
+      {/* ── CALLING (caller waits) ────────────────────────────────────────────── */}
       <AnimatePresence>
         {callStatus === 'calling' && (
           <motion.div
-            key="callingOverlay"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            key="calling"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={(e) => e.stopPropagation()}
-            style={voiceStyles.fullscreenOverlay}
+            style={vs.overlay}
           >
             <motion.div
               initial={{ scale: 0.7, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.7, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 260, damping: 20 }}
-              style={voiceStyles.ringingCard}
+              style={vs.card}
             >
               <motion.div
-                animate={{ scale: [1, 1.3, 1], opacity: [0.6, 0, 0.6] }}
+                animate={{ scale: [1, 1.4, 1], opacity: [0.5, 0, 0.5] }}
                 transition={{ duration: 1.5, repeat: Infinity }}
-                style={voiceStyles.pulseRing}
+                style={vs.pulse}
               />
-              <div style={voiceStyles.avatarCircle}>📞</div>
-              <p style={voiceStyles.callingText}>Calling...</p>
-              <p style={voiceStyles.callerName}>{partnerName}</p>
-              <button
-                onClick={stopCall}
-                style={{ ...voiceStyles.declineBtn, marginTop: '20px', width: '60px', height: '60px', fontSize: '22px' }}
-              >
-                ✕
-              </button>
-              <span style={{ ...voiceStyles.btnLabel, marginTop: '6px' }}>Cancel</span>
+              <div style={vs.avatar}>📞</div>
+              <p style={vs.subText}>Calling...</p>
+              <p style={vs.nameText}>{partnerName}</p>
+              <button onClick={(e) => stopCall(e)} style={{ ...vs.declineBtn, marginTop: '20px', width: 60, height: 60, fontSize: 22 }}>✕</button>
+              <span style={{ ...vs.btnLabel, marginTop: 6 }}>Cancel</span>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Idle call button */}
+      {/* ── CONNECTING (callee waiting for stream) ────────────────────────────── */}
+      <AnimatePresence>
+        {callStatus === 'connecting' && (
+          <motion.div
+            key="connecting"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={(e) => e.stopPropagation()}
+            style={vs.overlay}
+          >
+            <motion.div
+              initial={{ scale: 0.7, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.7, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+              style={vs.card}
+            >
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
+                style={{ fontSize: 40, marginBottom: 8 }}
+              >⟳</motion.div>
+              <p style={vs.subText}>Connecting...</p>
+              <p style={vs.nameText}>{callerName}</p>
+              <button onClick={(e) => stopCall(e)} style={{ ...vs.declineBtn, marginTop: '20px', width: 60, height: 60, fontSize: 22 }}>✕</button>
+              <span style={{ ...vs.btnLabel, marginTop: 6 }}>Cancel</span>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── ON CALL ──────────────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {callStatus === 'oncall' && (
+          <motion.div
+            key="oncall"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={(e) => e.stopPropagation()}
+            style={vs.overlay}
+          >
+            <motion.div
+              initial={{ scale: 0.7, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.7, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+              style={vs.card}
+            >
+              <motion.div
+                animate={{ scale: [1, 1.08, 1] }}
+                transition={{ duration: 2, repeat: Infinity }}
+                style={vs.avatar}
+              >🎙️</motion.div>
+              <p style={vs.subText}>In Call</p>
+              <p style={vs.nameText}>{partnerName}</p>
+              <p style={{ color: '#8a9a8e', fontSize: 14, fontVariantNumeric: 'tabular-nums' }}>
+                {formatTime(callSeconds)}
+              </p>
+              <button onClick={(e) => stopCall(e)} style={{ ...vs.declineBtn, marginTop: '20px', width: 60, height: 60, fontSize: 22 }}>✕</button>
+              <span style={{ ...vs.btnLabel, marginTop: 6 }}>End Call</span>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── IDLE BUTTON ──────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {callStatus === 'idle' && (
           <motion.button
             key="callBtn"
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            exit={{ scale: 0 }}
+            initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
             onClick={startCall}
-            style={voiceStyles.callBtn}
-          >
-            📞
-          </motion.button>
+            style={vs.callBtn}
+          >📞</motion.button>
         )}
       </AnimatePresence>
     </>
   );
 };
 
-const voiceStyles = {
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const vs = {
   callBtn: {
-    background: '#8a9a8e',
-    border: 'none',
-    borderRadius: '50%',
-    width: '36px',
-    height: '36px',
-    fontSize: '16px',
-    cursor: 'pointer',
+    background: '#8a9a8e', border: 'none', borderRadius: '50%',
+    width: 36, height: 36, fontSize: 16, cursor: 'pointer',
     boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
-  fullscreenOverlay: {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(0, 0, 0, 0.85)',
-    backdropFilter: 'blur(12px)',
+  overlay: {
+    position: 'fixed', inset: 0,
+    background: 'rgba(0,0,0,0.88)',
+    backdropFilter: 'blur(14px)',
     zIndex: 9999,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
-  ringingCard: {
+  card: {
     background: 'linear-gradient(145deg, #1a1a1a, #0d0d0d)',
-    border: '1px solid rgba(138, 154, 142, 0.4)',
-    borderRadius: '30px',
-    padding: '40px 50px',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: '10px',
+    border: '1px solid rgba(138,154,142,0.4)',
+    borderRadius: 30, padding: '40px 50px',
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
     boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
-    position: 'relative',
-    minWidth: '260px',
+    position: 'relative', minWidth: 260,
   },
-  pulseRing: {
-    position: 'absolute',
-    width: '110px',
-    height: '110px',
-    borderRadius: '50%',
-    background: 'rgba(138, 154, 142, 0.3)',
-    top: '28px',
+  pulse: {
+    position: 'absolute', width: 110, height: 110, borderRadius: '50%',
+    background: 'rgba(138,154,142,0.3)', top: 28,
   },
-  avatarCircle: {
-    width: '80px',
-    height: '80px',
-    borderRadius: '50%',
-    background: 'rgba(138, 154, 142, 0.15)',
+  avatar: {
+    width: 80, height: 80, borderRadius: '50%',
+    background: 'rgba(138,154,142,0.15)',
     border: '2px solid #8a9a8e',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '32px',
-    position: 'relative',
-    zIndex: 1,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: 32, position: 'relative', zIndex: 1,
   },
-  callingText: {
-    color: '#8a9a8e',
-    fontSize: '13px',
-    letterSpacing: '2px',
-    textTransform: 'uppercase',
-    margin: '10px 0 0 0',
-  },
-  callerName: {
-    color: '#fff',
-    fontSize: '22px',
-    fontWeight: 'bold',
-    margin: '0 0 10px 0',
-  },
-  ringingBtns: {
-    display: 'flex',
-    gap: '50px',
-    marginTop: '10px',
-    alignItems: 'flex-start',
-  },
+  subText:  { color: '#8a9a8e', fontSize: 13, letterSpacing: 2, textTransform: 'uppercase', margin: '10px 0 0 0' },
+  nameText: { color: '#fff', fontSize: 22, fontWeight: 'bold', margin: '0 0 10px 0' },
+  btnRow:   { display: 'flex', gap: 50, marginTop: 10, alignItems: 'flex-start' },
+  btnCol:   { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 },
   acceptBtn: {
-    background: '#4caf50',
-    border: 'none',
-    borderRadius: '50%',
-    width: '60px',
-    height: '60px',
-    fontSize: '22px',
-    color: '#fff',
-    cursor: 'pointer',
-    boxShadow: '0 4px 20px rgba(76, 175, 80, 0.4)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    background: '#4caf50', border: 'none', borderRadius: '50%',
+    width: 60, height: 60, fontSize: 22, color: '#fff', cursor: 'pointer',
+    boxShadow: '0 4px 20px rgba(76,175,80,0.4)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
   declineBtn: {
-    background: '#f44336',
-    border: 'none',
-    borderRadius: '50%',
-    width: '60px',
-    height: '60px',
-    fontSize: '22px',
-    color: '#fff',
-    cursor: 'pointer',
-    boxShadow: '0 4px 20px rgba(244, 67, 54, 0.4)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    background: '#f44336', border: 'none', borderRadius: '50%',
+    width: 60, height: 60, fontSize: 22, color: '#fff', cursor: 'pointer',
+    boxShadow: '0 4px 20px rgba(244,67,54,0.4)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
-  btnLabel: {
-    color: '#aaa',
-    fontSize: '12px',
-    textAlign: 'center',
-  },
+  btnLabel: { color: '#aaa', fontSize: 12, textAlign: 'center' },
 };
 
 export default VoiceCall;
