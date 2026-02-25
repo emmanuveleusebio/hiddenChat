@@ -8,33 +8,62 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
   const localStream = useRef(null);
   const remoteAudio = useRef(new Audio());
   const currentCall = useRef(null);
-  const callerPeerId = useRef(null);
+  const callerPeerId = useRef(null); // stores incoming caller's peer id (used by callee)
 
   useEffect(() => {
-    myPeer.current = new Peer(currentUser.id + "-voice");
+    // Initialize PeerJS with a stable ID
+    myPeer.current = new Peer(currentUser.id + '-voice', {
+      debug: 2,
+    });
 
     myPeer.current.on('open', (id) => {
-      console.log("Voice Peer ID:", id);
+      console.log('Voice Peer opened:', id);
       socket.emit('join-voice', currentUser.id);
     });
 
+    myPeer.current.on('error', (err) => {
+      console.error('PeerJS error:', err);
+    });
+
+    // ─── CALLEE SIDE ──────────────────────────────────────────────────────────
+    // This fires when the CALLER does peer.call() — happens after callee emits answer-call
     myPeer.current.on('call', (incomingCall) => {
-      currentCall.current = incomingCall;
+      console.log('PeerJS: incoming call received (answerer side)');
+      if (localStream.current) {
+        // We already got mic access in answerCall(), so answer immediately
+        incomingCall.answer(localStream.current);
+        setupCallListeners(incomingCall);
+      } else {
+        // Fallback: store and answer once stream is ready (shouldn't normally happen)
+        currentCall.current = incomingCall;
+      }
+    });
+
+    // ─── SOCKET SIGNALS ───────────────────────────────────────────────────────
+
+    // Callee receives this → show ringing UI
+    socket.on('incoming-call', ({ from, peerId }) => {
+      console.log('Socket: incoming-call from', from, 'peerId:', peerId);
+      callerPeerId.current = peerId; // store caller's peerId so we can dial back if needed
       setCallStatus('ringing');
     });
 
-    socket.on('incoming-call', (data) => {
-      console.log("Incoming call signal received from:", data.from, "peerId:", data.peerId);
-      callerPeerId.current = data.peerId;
-      setCallStatus('ringing');
-    });
-
-    socket.on('call-accepted', () => {
-      console.log("Call was accepted by partner");
+    // Caller receives this after callee answers → now initiate the PeerJS call
+    socket.on('call-accepted', ({ peerId: calleePeerId }) => {
+      console.log('Socket: call-accepted, callee peerId:', calleePeerId);
       setCallStatus('oncall');
+
+      if (myPeer.current && localStream.current && calleePeerId) {
+        console.log('Caller: initiating peer.call() to', calleePeerId);
+        const call = myPeer.current.call(calleePeerId, localStream.current);
+        setupCallListeners(call);
+      }
     });
 
-    socket.on('call-ended', stopCall);
+    socket.on('call-ended', () => {
+      console.log('Socket: call-ended received');
+      stopCall();
+    });
 
     return () => {
       socket.off('incoming-call');
@@ -42,52 +71,53 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
       socket.off('call-ended');
       myPeer.current?.destroy();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser.id]);
 
+  // ─── CALLER initiates the call ─────────────────────────────────────────────
   const startCall = async (e) => {
-    e.stopPropagation(); // ✅ prevents heart ping or any parent click from firing
+    e.stopPropagation();
     try {
-      setCallStatus('calling');
+      console.log('Caller: requesting mic...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       localStream.current = stream;
+      setCallStatus('calling');
 
-      if (!myPeer.current) return;
-
-      const myPeerId = currentUser.id + "-voice";
-
+      const myPeerId = currentUser.id + '-voice';
       socket.emit('call-user', {
         to: partnerId,
         from: currentUser.id,
-        peerId: myPeerId
+        peerId: myPeerId,
       });
-
-      // ✅ Removed heart_ping from here — call only, no side effects
-
+      console.log('Caller: emitted call-user to', partnerId);
     } catch (err) {
-      console.error("Mic access denied:", err);
+      console.error('Mic access denied:', err);
       setCallStatus('idle');
     }
   };
 
+  // ─── CALLEE answers the call ───────────────────────────────────────────────
   const answerCall = async (e) => {
     e.stopPropagation();
     try {
+      console.log('Callee: requesting mic...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       localStream.current = stream;
-      setCallStatus('oncall');
 
-      if (callerPeerId.current && myPeer.current) {
-        const call = myPeer.current.call(callerPeerId.current, stream);
-        setupCallListeners(call);
-      } else if (currentCall.current) {
+      // If PeerJS call already arrived before we had stream, answer it now
+      if (currentCall.current) {
         currentCall.current.answer(stream);
         setupCallListeners(currentCall.current);
       }
 
-      socket.emit('answer-call', { to: partnerId });
+      // Tell the caller we accepted — send our peerId so caller can peer.call() us
+      const myPeerId = currentUser.id + '-voice';
+      socket.emit('answer-call', { to: partnerId, peerId: myPeerId });
+      console.log('Callee: emitted answer-call with peerId', myPeerId);
 
+      setCallStatus('oncall');
     } catch (err) {
-      console.error("Error answering call:", err);
+      console.error('Error answering call:', err);
     }
   };
 
@@ -96,27 +126,44 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
     currentCall.current = call;
 
     call.on('stream', (userAudioStream) => {
+      console.log('Got remote audio stream!');
       remoteAudio.current.srcObject = userAudioStream;
-      remoteAudio.current.play().catch(e => console.log("Audio play blocked:", e));
+      remoteAudio.current
+        .play()
+        .catch((e) => console.warn('Audio play blocked:', e));
     });
 
-    call.on('close', stopCall);
-    call.on('error', stopCall);
+    call.on('close', () => {
+      console.log('PeerJS call closed');
+      stopCall();
+    });
+
+    call.on('error', (err) => {
+      console.error('PeerJS call error:', err);
+      stopCall();
+    });
   };
 
   const stopCall = (e) => {
     if (e && e.stopPropagation) e.stopPropagation();
-    localStream.current?.getTracks().forEach(track => track.stop());
+    console.log('Stopping call...');
+    localStream.current?.getTracks().forEach((track) => track.stop());
+    localStream.current = null;
     currentCall.current?.close();
+    currentCall.current = null;
     remoteAudio.current.srcObject = null;
     callerPeerId.current = null;
     setCallStatus('idle');
     socket.emit('end-voice-call', { to: partnerId });
   };
 
+  // ─── UI ───────────────────────────────────────────────────────────────────
+  const partnerName = currentUser.id === '9492' ? 'Rahitha' : 'Eusebio';
+  const callerLabel = currentUser.id === '9492' ? 'Eusebio' : 'Rahitha';
+
   return (
     <>
-      {/* ✅ Fullscreen overlay for ringing — rendered at root level, not inside header */}
+      {/* Ringing overlay (callee sees this) */}
       <AnimatePresence>
         {callStatus === 'ringing' && (
           <motion.div
@@ -134,7 +181,6 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
               transition={{ type: 'spring', stiffness: 260, damping: 20 }}
               style={voiceStyles.ringingCard}
             >
-              {/* Pulsing ring animation */}
               <motion.div
                 animate={{ scale: [1, 1.3, 1], opacity: [0.6, 0, 0.6] }}
                 transition={{ duration: 1.5, repeat: Infinity }}
@@ -142,9 +188,7 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
               />
               <div style={voiceStyles.avatarCircle}>📞</div>
               <p style={voiceStyles.callingText}>Incoming Call</p>
-              <p style={voiceStyles.callerName}>
-                {currentUser.id === "9492" ? "Eusebio" : "Rahitha"}
-              </p>
+              <p style={voiceStyles.callerName}>{callerLabel}</p>
               <div style={voiceStyles.ringingBtns}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
                   <button onClick={stopCall} style={voiceStyles.declineBtn}>✕</button>
@@ -160,7 +204,7 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
         )}
       </AnimatePresence>
 
-      {/* ✅ Fullscreen overlay for active call */}
+      {/* On-call overlay */}
       <AnimatePresence>
         {callStatus === 'oncall' && (
           <motion.div
@@ -186,17 +230,20 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
                 🎙️
               </motion.div>
               <p style={voiceStyles.callingText}>In Call</p>
-              <p style={voiceStyles.callerName}>
-                {currentUser.id === "9492" ? "Eusebio" : "Rahitha"}
-              </p>
-              <button onClick={stopCall} style={{ ...voiceStyles.declineBtn, marginTop: '20px', width: '60px', height: '60px', fontSize: '22px' }}>✕</button>
+              <p style={voiceStyles.callerName}>{partnerName}</p>
+              <button
+                onClick={stopCall}
+                style={{ ...voiceStyles.declineBtn, marginTop: '20px', width: '60px', height: '60px', fontSize: '22px' }}
+              >
+                ✕
+              </button>
               <span style={{ ...voiceStyles.btnLabel, marginTop: '6px' }}>End Call</span>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ✅ Calling state overlay */}
+      {/* Calling overlay (caller sees this while waiting) */}
       <AnimatePresence>
         {callStatus === 'calling' && (
           <motion.div
@@ -221,17 +268,20 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
               />
               <div style={voiceStyles.avatarCircle}>📞</div>
               <p style={voiceStyles.callingText}>Calling...</p>
-              <p style={voiceStyles.callerName}>
-                {currentUser.id === "9492" ? "Rahitha" : "Eusebio"}
-              </p>
-              <button onClick={stopCall} style={{ ...voiceStyles.declineBtn, marginTop: '20px', width: '60px', height: '60px', fontSize: '22px' }}>✕</button>
+              <p style={voiceStyles.callerName}>{partnerName}</p>
+              <button
+                onClick={stopCall}
+                style={{ ...voiceStyles.declineBtn, marginTop: '20px', width: '60px', height: '60px', fontSize: '22px' }}
+              >
+                ✕
+              </button>
               <span style={{ ...voiceStyles.btnLabel, marginTop: '6px' }}>Cancel</span>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ✅ The call button in header — only shown when idle */}
+      {/* Idle call button */}
       <AnimatePresence>
         {callStatus === 'idle' && (
           <motion.button
