@@ -1,8 +1,10 @@
 export const styles = {
+  // ... Keep all your existing chat styles (appViewport, chatPage, etc.)
+  
   appViewport: { 
     width: '100vw', 
     height: '100dvh', 
-    backgroundColor: '#000', 
+    backgroundColor: '#fff', // Changed to white for shopping look
     display: 'flex', 
     flexDirection: 'column', 
     overflow: 'hidden',
@@ -10,65 +12,117 @@ export const styles = {
     position: 'relative'
   },
 
-  calcPage: { 
-    height: '100%', 
-    display: 'flex', 
-    flexDirection: 'column',
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    flex: 1,
-    background: 'radial-gradient(circle at center, #1a1a1a 0%, #000 100%)', 
-    zIndex: 20
-  },
-  calcCard: { 
-    width: '100%', 
-    maxWidth: '500px', 
-    height: '95%', // Fills most of the height
+  // SHOPPING DISGUISE STYLES
+  shopPage: {
+    height: '100%',
     display: 'flex',
     flexDirection: 'column',
-    padding: '20px' ,
-    paddingTop: 0
+    backgroundColor: '#fff',
+    zIndex: 20,
   },
-  calcDisplay: { 
-    fontSize: '75px', 
-    color: '#8a9a8e', 
-    textAlign: 'right', 
-    padding: '10px 10px', 
-    // minHeight: '160px',
-    fontFamily: '"Courier New", Courier, monospace', 
-    fontWeight: 'bold', 
-    letterSpacing: '-2px',
-    wordBreak: 'break-all',
-    flexShrink: 0
+  shopHeader: {
+    padding: '50px 20px 15px',
+    backgroundColor: '#fff',
+    borderBottom: '1px solid #eee',
   },
-  calcScrollArea: {
+  shopTitle: {
+    fontSize: '22px',
+    fontWeight: '800',
+    color: '#000',
+    letterSpacing: '1px',
+    marginBottom: '15px',
+    textAlign: 'center'
+  },
+  searchContainer: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center'
+  },
+  shopSearchInput: {
+    flex: 1,
+    padding: '12px 15px 12px 40px',
+    borderRadius: '10px',
+    border: 'none',
+    backgroundColor: '#f5f5f5',
+    fontSize: '14px',
+    outline: 'none',
+    color: '#000'
+  },
+  searchIcon: {
+    position: 'absolute',
+    left: '12px',
+    color: '#888',
+    fontSize: '18px'
+  },
+  shopScrollArea: {
     flex: 1,
     overflowY: 'auto',
+    padding: '15px'
+  },
+  shopGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, 1fr)',
+    gap: '15px'
+  },
+  productCard: {
     display: 'flex',
-    flexDirection: 'column'
+    flexDirection: 'column',
+    marginBottom: '10px'
   },
-  calcGrid: { 
-    display: 'grid', 
-    gridTemplateColumns: 'repeat(4, 1fr)', 
-    gap: '14px',
-    flex: 1 // Makes the grid grow to fill space
-  },
-  calcBtn: { 
+  productImage: {
     width: '100%',
-    height: '100%', // Fills grid cell height
-    minHeight: '65px',
-    borderRadius: '22px', 
-    border: 'none', 
-    backgroundColor: '#111', 
-    color: '#fff', 
-    fontSize: '26px', 
-    fontFamily: '"Courier New", Courier, monospace', 
-    fontWeight: '900',
+    aspectRatio: '3/4',
+    backgroundColor: '#f9f9f9',
+    borderRadius: '12px',
+    objectFit: 'cover',
+    marginBottom: '8px'
+  },
+  productName: {
+    fontSize: '13px',
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: '4px'
+  },
+  productPrice: {
+    fontSize: '14px',
+    fontWeight: 'bold',
+    color: '#000'
+  },
+  
+  // POPUP STYLE
+  popupOverlay: {
+    position: 'fixed',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    zIndex: 1000,
+    padding: '40px'
   },
-  equalBtn: { backgroundColor: '#8a9a8e', color: '#000' },
+  popupContent: {
+    backgroundColor: '#fff',
+    padding: '25px',
+    borderRadius: '20px',
+    textAlign: 'center',
+    boxShadow: '0 10px 25px rgba(0,0,0,0.2)'
+  },
+  popupText: {
+    color: '#333',
+    fontSize: '14px',
+    lineHeight: '1.6',
+    marginBottom: '15px'
+  },
+  popupBtn: {
+    padding: '10px 25px',
+    backgroundColor: '#000',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '10px',
+    fontWeight: 'bold'
+  },
+
+  // Keep your existing chat styles below...
   chatPage: { 
     height: '100%', display: 'flex', flexDirection: 'column', 
     backgroundColor: '#050505', overflow: 'hidden', position: 'relative' 

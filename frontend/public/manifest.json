@@ -1,15 +1,15 @@
 {
-  "short_name": "Calculator",
-  "name": "Calculator Plus",
+  "short_name": "Fantasy",
+  "name": "Fantasy Plus",
   "gcm_sender_id": "103953800507",
   "icons": [
     {
-      "src": "logo192.png",
+      "src": "logo192.jpg",
       "type": "image/png",
       "sizes": "192x192"
     },
     {
-      "src": "logo512.png",
+      "src": "logo512.jpg",
       "type": "image/png",
       "sizes": "512x512"
     }

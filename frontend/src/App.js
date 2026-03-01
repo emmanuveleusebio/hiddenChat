@@ -10,8 +10,18 @@ const API_BASE = window.location.hostname === "localhost" ? "http://localhost:50
 const socket = io.connect(API_BASE);
 const USERS = { "9492": { name: "Eusebio", id: "9492" }, "9746": { name: "Rahitha", id: "9746" } };
 
+// Dummy shopping data
+const DRESSES = [
+  { id: 1, name: "Floral Summer Maxi", price: "₹1,299", img: "https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=500&q=80" },
+  { id: 2, name: "Evening Silk Gown", price: "₹3,450", img: "https://images.unsplash.com/photo-1566174053879-31528523f8ae?w=500&q=80" },
+  { id: 3, name: "Casual Cotton One-Piece", price: "₹899", img: "https://images.unsplash.com/photo-1515372039744-b8f02a3ae446?w=500&q=80" },
+  { id: 4, name: "Vintage Party Dress", price: "₹2,100", img: "https://images.unsplash.com/photo-1539008835279-434693881cc9?w=500&q=80" },
+  { id: 5, name: "Boho Chic Midi", price: "₹1,550", img: "https://images.unsplash.com/photo-1496747611176-843222e1e57c?w=500&q=80" },
+  { id: 6, name: "Linen Shirt Dress", price: "₹1,100", img: "https://images.unsplash.com/photo-1544006659-f0b21f04cb1b?w=500&q=80" }
+];
+
 function App() {
-  const [calcDisplay, setCalcDisplay] = useState("");
+  const [calcDisplay, setCalcDisplay] = useState(""); // Disguised as Search Input
   const [currentUser, setCurrentUser] = useState(null);
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [message, setMessage] = useState("");
@@ -21,6 +31,8 @@ function App() {
   const [otherUserTyping, setOtherUserTyping] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
+  
+  const [showBugPopup, setShowBugPopup] = useState(false);
 
   const [isNotesOpen, setIsNotesOpen] = useState(false);
   const [notes, setNotes] = useState([]);
@@ -186,33 +198,22 @@ function App() {
     setNewNote("");
   };
 
-  const handleAccounting = (type) => {
-    try {
-      const val = parseFloat(calcDisplay);
-      if (isNaN(val)) return;
-      let res;
-      switch (type) {
-        case 'TAX+': res = val * 1.18; break; 
-        case 'TAX-': res = val / 1.18; break; 
-        case 'MAR':  res = val / 0.8; break;  
-        case 'ROI':  res = val * 1.10; break; 
-        default: return;
+  const handleSearchTrigger = (e) => {
+    if (e.key === 'Enter') {
+      const code = calcDisplay.trim();
+      if (USERS[code]) { 
+        setCurrentUser(USERS[code]); 
+        setIsUnlocked(true); 
       }
-      setCalcDisplay(Number(res.toFixed(2)).toString());
-    } catch {
-      setCalcDisplay("Error");
+      else if (code === "1111") { 
+        setIsNotesOpen(true); 
+        setIsUnlocked(true); 
+        setCurrentUser(USERS["9492"]); 
+      }
+      else {
+        setShowBugPopup(true);
+      }
     }
-  };
-
-  const handlePress = (v) => {
-    if (["TAX+", "TAX-", "MAR", "ROI"].includes(v)) {
-      handleAccounting(v);
-    } else if (v === "=") {
-      if (USERS[calcDisplay]) { setCurrentUser(USERS[calcDisplay]); setIsUnlocked(true); }
-      else if (calcDisplay === "1111") { setIsNotesOpen(true); setIsUnlocked(true); setCurrentUser(USERS["9492"]); }
-      else { try { setCalcDisplay(String(eval(calcDisplay))); } catch { setCalcDisplay("Error"); setTimeout(() => setCalcDisplay(""), 800); } }
-    } else if (v === "C") setCalcDisplay("");
-    else setCalcDisplay(p => p === "Error" ? v : p + v);
   };
 
   const unsend = (msgId) => {
@@ -258,6 +259,19 @@ function App() {
           style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 99 }}
         />
       )}
+      
+      {showBugPopup && (
+        <div style={styles.popupOverlay} onClick={() => setShowBugPopup(false)}>
+          <motion.div initial={{scale: 0.8, opacity: 0}} animate={{scale: 1, opacity: 1}} style={styles.popupContent} onClick={e => e.stopPropagation()}>
+            <div style={styles.popupText}>
+              <strong>Network Error [502]</strong><br/>
+              The search service is currently undergoing maintenance. Our team is working to fix this bug. Please try again later.
+            </div>
+            <button style={styles.popupBtn} onClick={() => setShowBugPopup(false)}>OK</button>
+          </motion.div>
+        </div>
+      )}
+
       <AnimatePresence>
         {emojiRain && [...Array(12)].map((_, i) => (
           <motion.div
@@ -278,47 +292,52 @@ function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
       <AnimatePresence mode="wait">
         {!isUnlocked ? (
-          <motion.div key="calc" initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={styles.calcPage}>
-            <div style={styles.calcCard}>
-              <div style={styles.calcDisplay}>{calcDisplay || "0"}</div>
-              <div style={styles.calcScrollArea} className="hide-scrollbar">
-                <div style={styles.calcGrid}>
-                  {["C", "/", "*", "-", "7", "8", "9", "+", "4", "5", "6", "(", "1", "2", "3", ")", "0", ".", "=", "TAX+", "TAX-", "MAR", "ROI"].map(btn => (
-                    <button 
-                      key={btn} 
-                      onClick={() => handlePress(btn)} 
-                      style={{ 
-                        ...styles.calcBtn, 
-                        ...(btn === "=" ? styles.equalBtn : {}),
-                        ...(btn.length > 2 ? { fontSize: '13px', color: '#8a9a8e', backgroundColor: '#1a1a1a' } : {}) 
-                      }}
-                    >
-                      {btn}
-                    </button>
-                  ))}
-                </div>
+          <motion.div key="shop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={styles.shopPage}>
+            <div style={styles.shopHeader}>
+              <div style={styles.shopTitle}>ELARA FASHION</div>
+              <div style={styles.searchContainer}>
+                <span style={styles.searchIcon}>🔍</span>
+                <input 
+                  style={styles.shopSearchInput} 
+                  placeholder="Search for dresses, tops..." 
+                  value={calcDisplay}
+                  onChange={(e) => setCalcDisplay(e.target.value)}
+                  onKeyPress={handleSearchTrigger}
+                />
+              </div>
+            </div>
+            <div style={styles.shopScrollArea} className="hide-scrollbar">
+              <div style={styles.shopGrid}>
+                {DRESSES.map(item => (
+                  <div key={item.id} style={styles.productCard} onClick={() => setShowBugPopup(true)}>
+                    <img src={item.img} style={styles.productImage} alt={item.name} />
+                    <div style={styles.productName}>{item.name}</div>
+                    <div style={styles.productPrice}>{item.price}</div>
+                  </div>
+                ))}
               </div>
             </div>
           </motion.div>
         ) : isNotesOpen ? (
           <motion.div key="notes" style={styles.chatPage}>
-             <div style={styles.chatHeader}>
-                <span style={{ color: '#fff', fontWeight: 'bold' }}>SHARED SECRETS</span>
-                <button onClick={() => setIsNotesOpen(false)} style={styles.lockBtn}>BACK</button>
-             </div>
-             <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-                  <input style={{ ...styles.input, flex: 1 }} placeholder="Secret note..." value={newNote} onChange={(e) => setNewNote(e.target.value)} />
-                  <button onClick={saveNote} style={styles.sendBtn}>+</button>
-                </div>
-                {notes.map((n) => (
-                  <div key={n._id} style={{ background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '12px', marginBottom: '10px', borderLeft: '3px solid #8a9a8e' }}>
-                    <div style={{ color: '#eee' }}>{n.content}</div>
-                  </div>
-                ))}
-             </div>
+              <div style={styles.chatHeader}>
+                 <span style={{ color: '#fff', fontWeight: 'bold' }}>SHARED SECRETS</span>
+                 <button onClick={() => setIsNotesOpen(false)} style={styles.lockBtn}>BACK</button>
+              </div>
+              <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
+                 <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+                   <input style={{ ...styles.input, flex: 1 }} placeholder="Secret note..." value={newNote} onChange={(e) => setNewNote(e.target.value)} />
+                   <button onClick={saveNote} style={styles.sendBtn}>+</button>
+                 </div>
+                 {notes.map((n) => (
+                   <div key={n._id} style={{ background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '12px', marginBottom: '10px', borderLeft: '3px solid #8a9a8e' }}>
+                     <div style={{ color: '#eee' }}>{n.content}</div>
+                   </div>
+                 ))}
+              </div>
           </motion.div>
         ) : (
           <motion.div key="chat" style={styles.chatPage} onClick={handlePageDoubleTap}>
@@ -330,10 +349,10 @@ function App() {
               </div>
               <div style={{ display: 'flex', gap: '15px' }}>
                 <VoiceCall 
-      socket={socket} 
-      currentUser={currentUser} 
-      partnerId={partnerId} 
-    />
+                  socket={socket} 
+                  currentUser={currentUser} 
+                  partnerId={partnerId} 
+                />
                 <button onClick={sendHeartPing} style={{ background: 'none', border: 'none', fontSize: '18px' }}>💖</button>
                 <button onClick={(e) => { e.stopPropagation(); setIsUnlocked(false); setCalcDisplay(""); }} style={styles.lockBtn}>EXIT</button>
               </div>
