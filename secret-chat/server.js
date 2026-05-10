@@ -10,7 +10,11 @@ connectDB();
 
 // 2. Initialize Socket.io (without server yet)
 const io = new Server({
-  cors: { origin: "*" },
+  cors: {
+    origin: ["https://calc-socket.vercel.app", "http://localhost:3000", "http://127.0.0.1:3000"],
+    methods: ["GET", "POST"],
+    credentials: true
+  },
   maxHttpBufferSize: 1e8 // 100MB
 });
 

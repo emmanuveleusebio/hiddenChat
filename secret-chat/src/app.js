@@ -10,9 +10,10 @@ const createApp = (io) => {
 
   // Middleware
   app.use(cors({
-    origin: '*',
+    origin: ["https://calc-socket.vercel.app", "http://localhost:3000", "http://127.0.0.1:3000"],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
   }));
   app.use(logger);
   app.use(express.json({ limit: '50mb' }));
