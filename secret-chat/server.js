@@ -13,8 +13,11 @@ const io = new Server({
   cors: {
     origin: ["https://calc-socket.vercel.app", "http://localhost:3000", "http://127.0.0.1:3000", "https://calc-socket-emmanuveleusebios-projects.vercel.app"],
     methods: ["GET", "POST", "OPTIONS"],
-    credentials: true
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"]
   },
+  transports: ['websocket', 'polling'],
+  allowEIO3: true,
   maxHttpBufferSize: 1e8 // 100MB
 });
 

@@ -13,7 +13,12 @@ const API_BASE = (window.location.hostname === "localhost" || window.location.ho
   : "https://calcsocket.onrender.com";
 
 console.log("🔗 Connecting to API at:", API_BASE);
-const socket = io.connect(API_BASE);
+const socket = io(API_BASE, {
+  transports: ['websocket', 'polling'],
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
+});
 const USERS = { "9492": { name: "Eusebio", id: "9492" }, "9746": { name: "Rahitha", id: "9746" } };
 
 function App() {
