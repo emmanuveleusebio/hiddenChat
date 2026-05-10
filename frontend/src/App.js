@@ -271,8 +271,15 @@ function App() {
     <div style={{ ...styles.appViewport, overflow: 'hidden' }} onClick={() => setSelectedMsg(null)}>
       {isUnlocked && isPartnerPresent && (
         <motion.div 
-          animate={{ opacity: [0.1, 0.4, 0.1], boxShadow: ['inset 0 0 20px #8a9a8e', 'inset 0 0 40px #8a9a8e', 'inset 0 0 20px #8a9a8e'] }}
-          transition={{ duration: 2, repeat: Infinity }}
+          animate={{ 
+            opacity: [0.1, 0.3, 0.1], 
+            boxShadow: [
+              'inset 0 0 50px rgba(196, 164, 132, 0.2)', 
+              'inset 0 0 100px rgba(196, 164, 132, 0.4)', 
+              'inset 0 0 50px rgba(196, 164, 132, 0.2)'
+            ] 
+          }}
+          transition={{ duration: 3, repeat: Infinity }}
           style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 99 }}
         />
       )}

@@ -28,11 +28,10 @@ const MessageBubble = ({ m, i, currentUser, selectedMsg, handleMsgTap, unsend })
           onClick={(e) => handleMsgTap(e, m, isMe)} 
           style={{ 
             ...styles.bubble, 
+            ...(isMe ? styles.myBubble : styles.theirBubble),
             userSelect: 'none', 
             WebkitUserSelect: 'none', 
-            backgroundColor: isMe ? 'rgba(138, 154, 142, 0.92)' : 'rgba(26, 26, 26, 0.92)', 
-            color: isMe ? '#000' : '#fff', 
-            border: isSelected ? '1px solid #fff' : '1px solid rgba(255,255,255,0.08)' 
+            border: isSelected ? '1px solid #fff' : (isMe ? 'none' : styles.theirBubble.border) 
           }}
         >
           {hasReply && (

@@ -20,14 +20,12 @@ const NotesSection = ({ notes, newNote, setNewNote, saveNote, setIsNotesOpen }) 
            <button onClick={saveNote} style={styles.sendBtn}>+</button>
          </div>
          {notes.map((n) => (
-           <div key={n._id} style={{ 
-             background: 'rgba(255,255,255,0.05)', 
-             padding: '15px', 
-             borderRadius: '12px', 
-             marginBottom: '10px', 
-             borderLeft: '3px solid #8a9a8e' 
-           }}>
-             <div style={{ color: '#eee' }}>{n.content}</div>
+           <div key={n._id} style={styles.noteCard}>
+             <div style={styles.noteAccent} />
+             <div style={{ color: '#eee', fontSize: '15px', lineHeight: '1.6' }}>{n.content}</div>
+             <div style={{ color: '#666', fontSize: '10px', marginTop: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+               {new Date(n.timestamp).toLocaleDateString()}
+             </div>
            </div>
          ))}
       </div>
