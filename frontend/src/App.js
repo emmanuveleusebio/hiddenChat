@@ -4,24 +4,21 @@ import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { styles } from './styles';
 import { requestForToken } from './firebase-config';
-import VoiceCall from './VoiceCall';
+import VaultDisguise from './components/Vault/VaultDisguise';
+import ChatWindow from './components/Chat/ChatWindow';
+import NotesSection from './components/Vault/NotesSection';
 
-const API_BASE = window.location.hostname === "localhost" ? "http://localhost:5000" : "https://calcsocket.onrender.com";
+const API_BASE = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname === "::1") 
+  ? "http://localhost:5000" 
+  : "https://calcsocket.onrender.com";
+
+console.log("🔗 Connecting to API at:", API_BASE);
 const socket = io.connect(API_BASE);
 const USERS = { "9492": { name: "Eusebio", id: "9492" }, "9746": { name: "Rahitha", id: "9746" } };
 
-// Dummy shopping data
-const DRESSES = [
-  { id: 1, name: "Floral Summer Maxi", price: "₹1,299", img: "https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=500&q=80" },
-  { id: 2, name: "Evening Silk Gown", price: "₹3,450", img: "https://images.unsplash.com/photo-1566174053879-31528523f8ae?w=500&q=80" },
-  { id: 3, name: "Casual Cotton One-Piece", price: "₹899", img: "https://images.unsplash.com/photo-1515372039744-b8f02a3ae446?w=500&q=80" },
-  { id: 4, name: "Vintage Party Dress", price: "₹2,100", img: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQZpxQw20ZQY3ejfad-m1mP21COiIO5p0zh8Q&s" },
-  { id: 5, name: "Boho Chic Midi", price: "₹1,550", img: "https://images.unsplash.com/photo-1496747611176-843222e1e57c?w=500&q=80" },
-  { id: 6, name: "Linen Shirt Dress", price: "₹1,100", img: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRFkBxdEeH3DLpfcMjjeitdel_xOl8zR3aO7A&s" }
-];
-
 function App() {
-  const [calcDisplay, setCalcDisplay] = useState(""); // Disguised as Search Input
+  // --- State ---
+  const [calcDisplay, setCalcDisplay] = useState("");
   const [currentUser, setCurrentUser] = useState(null);
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [message, setMessage] = useState("");
@@ -31,9 +28,7 @@ function App() {
   const [otherUserTyping, setOtherUserTyping] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
-  
   const [showBugPopup, setShowBugPopup] = useState(false);
-
   const [isNotesOpen, setIsNotesOpen] = useState(false);
   const [notes, setNotes] = useState([]);
   const [newNote, setNewNote] = useState("");
@@ -41,12 +36,15 @@ function App() {
   const [pingHeart, setPingHeart] = useState(false);
   const [isPartnerPresent, setIsPartnerPresent] = useState(false);
 
+  // --- Refs ---
   const typingTimeoutRef = useRef(null);
   const chatEndRef = useRef(null);
   const pageLastTap = useRef(0);
+  const pageTapCount = useRef(0);
   const msgLastTap = useRef({ id: null, time: 0 });
   const partnerId = currentUser?.id === "9492" ? "9746" : "9492";
 
+  // --- Socket Effects ---
   useEffect(() => {
     if (isUnlocked && currentUser) {
       requestForToken(currentUser.id, API_BASE);
@@ -54,6 +52,66 @@ function App() {
     }
   }, [isUnlocked, currentUser]);
 
+  useEffect(() => {
+    socket.on('receive_message', (msg) => {
+      setChatLog(prev => [...prev, msg]);
+      if (isUnlocked && currentUser && msg.senderId !== currentUser.id) markAsSeen(currentUser.id);
+    });
+    socket.on('presence_update', (users) => {
+      const pId = currentUser?.id === "9492" ? "9746" : "9492";
+      setIsPartnerPresent(users.includes(pId));
+    });
+    socket.on('receive_heart_ping', () => {
+      setPingHeart(true);
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      setTimeout(() => setPingHeart(false), 2500);
+    });
+    socket.on('note_updated', fetchNotes);
+    socket.on('message_deleted', (msgId) => {
+      setChatLog(prev => prev.filter(m => m._id !== msgId && m.id !== msgId));
+    });
+    socket.on('display_typing', (data) => {
+      if (data.userId !== currentUser?.id) setOtherUserTyping(data.typing);
+    });
+    socket.on('messages_seen', fetchMessages);
+    
+    return () => {
+      socket.off('receive_message');
+      socket.off('message_deleted');
+      socket.off('display_typing');
+      socket.off('messages_seen');
+      socket.off('presence_update');
+      socket.off('receive_heart_ping');
+      socket.off('note_updated');
+    };
+  }, [isUnlocked, currentUser]);
+
+  // --- Fetching ---
+  const fetchMessages = () => 
+    axios.get(`${API_BASE}/messages`)
+      .then(res => setChatLog(res.data))
+      .catch(err => console.error("❌ Error fetching messages:", err));
+
+  const fetchNotes = () => 
+    axios.get(`${API_BASE}/notes`)
+      .then(res => setNotes(res.data))
+      .catch(err => console.error("❌ Error fetching notes:", err));
+
+  const markAsSeen = (id) => 
+    axios.post(`${API_BASE}/seen`, { userId: id })
+      .catch(err => console.error("❌ Error marking seen:", err));
+
+  useEffect(() => {
+    if (isUnlocked && currentUser) { 
+      fetchMessages(); 
+      fetchNotes();
+      markAsSeen(currentUser.id); 
+    }
+  }, [isUnlocked, currentUser]);
+
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatLog, otherUserTyping]);
+
+  // --- Mood Logic ---
   useEffect(() => {
     if (chatLog.length === 0) return;
     const lastMsg = chatLog[chatLog.length - 1].text?.trim();
@@ -76,53 +134,7 @@ function App() {
     setTimeout(() => setEmojiRain(null), 4000);
   };
 
-  const fetchMessages = () => axios.get(`${API_BASE}/messages`).then(res => setChatLog(res.data));
-  const fetchNotes = () => axios.get(`${API_BASE}/notes`).then(res => setNotes(res.data));
-  const markAsSeen = (id) => axios.post(`${API_BASE}/seen`, { userId: id });
-
-  useEffect(() => {
-    socket.on('receive_message', (msg) => {
-      setChatLog(prev => [...prev, msg]);
-      if (isUnlocked && currentUser && msg.senderId !== currentUser.id) markAsSeen(currentUser.id);
-    });
-    socket.on('presence_update', (users) => {
-      const partnerId = currentUser?.id === "9492" ? "9746" : "9492";
-      setIsPartnerPresent(users.includes(partnerId));
-    });
-    socket.on('receive_heart_ping', () => {
-      setPingHeart(true);
-      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-      setTimeout(() => setPingHeart(false), 2500);
-    });
-    socket.on('note_updated', fetchNotes);
-    socket.on('message_deleted', (msgId) => {
-      setChatLog(prev => prev.filter(m => m._id !== msgId && m.id !== msgId));
-    });
-    socket.on('display_typing', (data) => {
-      if (data.userId !== currentUser?.id) setOtherUserTyping(data.typing);
-    });
-    socket.on('messages_seen', fetchMessages);
-    return () => {
-      socket.off('receive_message');
-      socket.off('message_deleted');
-      socket.off('display_typing');
-      socket.off('messages_seen');
-      socket.off('presence_update');
-      socket.off('receive_heart_ping');
-      socket.off('note_updated');
-    };
-  }, [isUnlocked, currentUser]);
-
-  useEffect(() => {
-    if (isUnlocked && currentUser) { 
-      fetchMessages(); 
-      fetchNotes();
-      markAsSeen(currentUser.id); 
-    }
-  }, [isUnlocked, currentUser]);
-
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatLog, otherUserTyping]);
-
+  // --- Handlers ---
   const handleTyping = (e) => {
     setMessage(e.target.value);
     socket.emit('typing', { userId: currentUser.id, typing: true });
@@ -204,13 +216,11 @@ function App() {
       if (USERS[code]) { 
         setCurrentUser(USERS[code]); 
         setIsUnlocked(true); 
-      }
-      else if (code === "1111") { 
+      } else if (code === "1111") { 
         setIsNotesOpen(true); 
         setIsUnlocked(true); 
         setCurrentUser(USERS["9492"]); 
-      }
-      else {
+      } else {
         setShowBugPopup(true);
       }
     }
@@ -223,12 +233,18 @@ function App() {
 
   const handlePageDoubleTap = () => {
     const now = Date.now();
-    if (now - pageLastTap.current < 300) {
-      setIsUnlocked(false);
-      setCalcDisplay("");
+    if (now - pageLastTap.current < 400) {
+      pageTapCount.current += 1;
+      // TRIPLE TAP = EXIT (Panic Feature)
+      if (pageTapCount.current >= 2) {
+        setIsUnlocked(false);
+        setCalcDisplay("");
+        pageTapCount.current = 0;
+      }
     } else {
-      pageLastTap.current = now;
+      pageTapCount.current = 1;
     }
+    pageLastTap.current = now;
   };
 
   const handleMsgTap = (e, m, isMe) => {
@@ -250,6 +266,7 @@ function App() {
     }
   };
 
+  // --- Render ---
   return (
     <div style={{ ...styles.appViewport, overflow: 'hidden' }} onClick={() => setSelectedMsg(null)}>
       {isUnlocked && isPartnerPresent && (
@@ -285,6 +302,7 @@ function App() {
           </motion.div>
         ))}
       </AnimatePresence>
+
       <AnimatePresence>
         {(showKiss || pingHeart) && (
           <motion.div key="kiss" initial={{ scale: 0, opacity: 0 }} animate={{ scale: [0, 1.2, 5], opacity: [0, 1, 0] }} transition={{ duration: 2.2 }} style={styles.kissLayer}>
@@ -295,121 +313,44 @@ function App() {
 
       <AnimatePresence mode="wait">
         {!isUnlocked ? (
-          <motion.div key="shop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={styles.shopPage}>
-            <div style={styles.shopHeader}>
-              <div style={styles.shopTitle}>ELARA FASHION</div>
-              <div style={styles.searchContainer}>
-                <span style={styles.searchIcon}>🔍</span>
-                <input 
-                  style={styles.shopSearchInput} 
-                  placeholder="Search for dresses, tops..." 
-                  value={calcDisplay}
-                  onChange={(e) => setCalcDisplay(e.target.value)}
-                  onKeyPress={handleSearchTrigger}
-                />
-              </div>
-            </div>
-            <div style={styles.shopScrollArea} className="hide-scrollbar">
-              <div style={styles.shopGrid}>
-                {DRESSES.map(item => (
-                  <div key={item.id} style={styles.productCard} onClick={() => setShowBugPopup(true)}>
-                    <img src={item.img} style={styles.productImage} alt={item.name} />
-                    <div style={styles.productName}>{item.name}</div>
-                    <div style={styles.productPrice}>{item.price}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </motion.div>
+          <VaultDisguise 
+            calcDisplay={calcDisplay} 
+            setCalcDisplay={setCalcDisplay} 
+            handleSearchTrigger={handleSearchTrigger} 
+            setShowBugPopup={setShowBugPopup} 
+          />
         ) : isNotesOpen ? (
-          <motion.div key="notes" style={styles.chatPage}>
-              <div style={styles.chatHeader}>
-                 <span style={{ color: '#fff', fontWeight: 'bold' }}>SHARED SECRETS</span>
-                 <button onClick={() => setIsNotesOpen(false)} style={styles.lockBtn}>BACK</button>
-              </div>
-              <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
-                 <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-                   <input style={{ ...styles.input, flex: 1 }} placeholder="Secret note..." value={newNote} onChange={(e) => setNewNote(e.target.value)} />
-                   <button onClick={saveNote} style={styles.sendBtn}>+</button>
-                 </div>
-                 {notes.map((n) => (
-                   <div key={n._id} style={{ background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '12px', marginBottom: '10px', borderLeft: '3px solid #8a9a8e' }}>
-                     <div style={{ color: '#eee' }}>{n.content}</div>
-                   </div>
-                 ))}
-              </div>
-          </motion.div>
+          <NotesSection 
+            notes={notes} 
+            newNote={newNote} 
+            setNewNote={setNewNote} 
+            saveNote={saveNote} 
+            setIsNotesOpen={setIsNotesOpen} 
+          />
         ) : (
-          <motion.div key="chat" style={styles.chatPage} onClick={handlePageDoubleTap}>
-            <motion.div style={{ ...styles.atmosphere, background: moodColor }} animate={{ background: moodColor }} transition={{ duration: 3 }} />
-            <div style={styles.chatHeader}>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <div style={{ ...styles.statusDot, background: isPartnerPresent ? '#4caf50' : '#555' }} />
-                <span style={{ color: '#fff', fontWeight: 'bold' }}>VAULT</span>
-              </div>
-              <div style={{ display: 'flex', gap: '15px' }}>
-                <VoiceCall 
-                  socket={socket} 
-                  currentUser={currentUser} 
-                  partnerId={partnerId} 
-                />
-                <button onClick={sendHeartPing} style={{ background: 'none', border: 'none', fontSize: '18px' }}>💖</button>
-                <button onClick={(e) => { e.stopPropagation(); setIsUnlocked(false); setCalcDisplay(""); }} style={styles.lockBtn}>EXIT</button>
-              </div>
-            </div>
-            <div style={styles.messageList}>
-              {chatLog.map((m, i) => {
-                const isMe = m.senderId === currentUser.id;
-                const isSelected = selectedMsg === m._id;
-                const isMood = ["❤️", "🫂", "😁", "💋"].some(e => m.text?.includes(e));
-                const hasReply = m.replyTo && (m.replyTo.text || m.replyTo.image);
-                return (
-                  <div key={m._id || i} style={{ ...styles.msgRow, justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
-                      <AnimatePresence>
-                        {isMe && isSelected && (
-                          <motion.button initial={{ scale: 0, x: 20 }} animate={{ scale: 1, x: 0 }} exit={{ scale: 0 }} onClick={() => unsend(m._id)} style={styles.unsendActionBtn}>Unsend</motion.button>
-                        )}
-                      </AnimatePresence>
-                      <div onClick={(e) => handleMsgTap(e, m, isMe)} style={{ ...styles.bubble, userSelect: 'none', WebkitUserSelect: 'none', backgroundColor: isMe ? 'rgba(138, 154, 142, 0.92)' : 'rgba(26, 26, 26, 0.92)', color: isMe ? '#000' : '#fff', border: isSelected ? '1px solid #fff' : '1px solid rgba(255,255,255,0.08)' }}>
-                        {hasReply && (
-                          <div style={{ background: isMe ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)', padding: '8px 10px', borderRadius: '8px', borderLeft: `4px solid ${isMe ? '#444' : '#8a9a8e'}`, marginBottom: '8px', fontSize: '12px', backdropFilter: 'blur(5px)' }}>
-                            <div style={{ fontWeight: 'bold', fontSize: '11px', color: isMe ? '#222' : '#8a9a8e', marginBottom: '2px' }}>{m.replyTo.senderName === currentUser.name ? "You" : m.replyTo.senderName}</div>
-                            <div style={{ opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '150px' }}>{m.replyTo.text ? m.replyTo.text : "📷 Image"}</div>
-                          </div>
-                        )}
-                        {m.image && <img src={m.image} alt="v" style={{ maxWidth: '100%', borderRadius: '12px', display: 'block', marginBottom: '8px' }} />}
-                        {m.text && <div style={{ wordBreak: 'break-word', fontSize: isMood ? '48px' : '15px' }}>{m.text}</div>}
-                        <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '6px', textAlign: 'right' }}>
-                          {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          {isMe && <span style={{ marginLeft: '4px' }}>{m.seen ? "✓✓" : "✓"}</span>}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-              <div ref={chatEndRef} style={{ height: '10px' }} />
-            </div>
-            {otherUserTyping && <div style={styles.typingIndicator}>{currentUser.id === "9492" ? "Rahitha" : "Eusebio"} is typing...</div>}
-            <AnimatePresence>
-              {replyingTo && (
-                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} style={{ padding: '10px 15px', background: 'rgba(30, 30, 30, 0.98)', borderLeft: '4px solid #8a9a8e', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backdropFilter: 'blur(10px)', position: 'relative', zIndex: 10, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                  <div style={{ fontSize: '12px', color: '#ccc', flex: 1 }}>
-                    <div style={{ fontWeight: 'bold', color: '#8a9a8e' }}>Replying to {replyingTo.senderName}</div>
-                    <div style={{ opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '250px' }}>{replyingTo.text || "Image 📷"}</div>
-                  </div>
-                  <button onClick={(e) => { e.stopPropagation(); setReplyingTo(null); }} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '18px' }}>✕</button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-            <div style={styles.inputArea} onClick={(e) => e.stopPropagation()}>
-              <input type="file" id="imgInput" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
-              <button onClick={() => document.getElementById('imgInput').click()} style={{ background: 'none', border: 'none', fontSize: '20px' }}>📷</button>
-              <input style={styles.input} value={message} onChange={handleTyping} placeholder="Message..." onKeyPress={e => e.key === 'Enter' && sendText()} />
-              <button onClick={sendText} style={styles.sendBtn}>➔</button>
-            </div>
-          </motion.div>
+          <ChatWindow 
+            chatLog={chatLog}
+            currentUser={currentUser}
+            partnerId={partnerId}
+            isPartnerPresent={isPartnerPresent}
+            moodColor={moodColor}
+            handlePageDoubleTap={handlePageDoubleTap}
+            sendHeartPing={sendHeartPing}
+            setIsUnlocked={setIsUnlocked}
+            setCalcDisplay={setCalcDisplay}
+            selectedMsg={selectedMsg}
+            handleMsgTap={handleMsgTap}
+            unsend={unsend}
+            otherUserTyping={otherUserTyping}
+            replyingTo={replyingTo}
+            setReplyingTo={setReplyingTo}
+            message={message}
+            handleTyping={handleTyping}
+            sendText={sendText}
+            handleImageUpload={handleImageUpload}
+            chatEndRef={chatEndRef}
+            socket={socket}
+          />
         )}
       </AnimatePresence>
       <style>{`.hide-scrollbar::-webkit-scrollbar { display: none; } .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }`}</style>

@@ -1,176 +1,33 @@
 require('dotenv').config();
-const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const admin = require('firebase-admin');
+const connectDB = require('./src/config/db');
+const createApp = require('./src/app');
+const socketHandler = require('./src/services/socketService');
 
-if (!admin.apps.length) {
-  try {
-    const decoded = Buffer.from(process.env.FB_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf8');
-    const serviceAccount = JSON.parse(decoded);
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
-    console.log("✅ Firebase Admin Initialized Successfully");
-  } catch (error) {
-    console.error("Firebase Initialization Error:", error.message);
-  }
-}
-const app = express();
-app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+// 1. Connect to Database
+connectDB();
 
-const server = http.createServer(app);
-const io = new Server(server, {
+// 2. Initialize Socket.io (without server yet)
+const io = new Server({
   cors: { origin: "*" },
-  maxHttpBufferSize: 1e8
+  maxHttpBufferSize: 1e8 // 100MB
 });
 
+// 3. Create Express App
+const app = createApp(io);
 
+// 4. Create HTTP Server and attach app
+const server = http.createServer(app);
 
-// 1. Token Database Schema
-const TokenSchema = new mongoose.Schema({ userId: String, token: String });
-const Token = mongoose.model('Token', TokenSchema);
+// 5. Attach Socket.io to server
+io.attach(server);
 
-// NEW: Shared Notes Schema
-const NoteSchema = new mongoose.Schema({ content: String, timestamp: { type: Date, default: Date.now } });
-const Note = mongoose.model('Note', NoteSchema);
+// 6. Handle Socket Connections
+io.on('connection', (socket) => socketHandler(io, socket));
 
-mongoose.connect(process.env.MONGO_URI).then(() => console.log("Vault DB Connected"));
-
-const MessageSchema = new mongoose.Schema({
-  text: String,
-  image: String,
-  senderId: String,
-  senderName: String,
-  seen: { type: Boolean, default: false },
-  timestamp: { type: Date, default: Date.now },
-  replyTo: {
-    text: { type: String, default: "" },
-    image: { type: String, default: null },
-    senderName: { type: String, default: "" }
-  }
-}, { minimize: false });
-
-const Message = mongoose.model('Message', MessageSchema);
-
-app.get('/messages', async (req, res) => {
-  const messages = await Message.find().sort({ timestamp: -1 }).limit(50).exec();
-  res.json(messages.reverse());
+// 7. Start Server
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`🚀 Production-ready Server running on port ${PORT}`);
 });
-
-app.post('/seen', async (req, res) => {
-  await Message.updateMany({ senderId: { $ne: req.body.userId }, seen: false }, { $set: { seen: true } });
-  io.emit('messages_seen');
-  res.sendStatus(200);
-});
-
-app.post('/save-token', async (req, res) => {
-  const { userId, token } = req.body;
-  await Token.findOneAndUpdate({ userId }, { token }, { upsert: true });
-  res.sendStatus(200);
-});
-
-// NEW: Shared Notes Endpoints
-app.get('/notes', async (req, res) => {
-  const notes = await Note.find().sort({ timestamp: -1 });
-  res.json(notes);
-});
-
-app.post('/notes', async (req, res) => {
-  const newNote = new Note({ content: req.body.content });
-  await newNote.save();
-  io.emit('note_updated');
-  res.sendStatus(200);
-});
-
-let activeUsers = {};
-
-io.on('connection', (socket) => {
-  require('./voiceSignals')(io, socket);
-  socket.on('user_active', (userId) => {
-    activeUsers[socket.id] = userId;
-    io.emit('presence_update', Object.values(activeUsers));
-  });
-
-  socket.on('send_message', async (data) => {
-    try {
-      const newMessage = new Message({
-        text: data.text,
-        image: data.image,
-        senderId: data.senderId,
-        senderName: data.senderName,
-        replyTo: data.replyTo ? {
-          text: data.replyTo.text || "",
-          image: data.replyTo.image || null,
-          senderName: data.replyTo.senderName || ""
-        } : null,
-        timestamp: new Date(),
-        seen: false
-      });
-
-      const savedMessage = await newMessage.save();
-      io.emit('receive_message', savedMessage);
-
-
-    } catch (err) { console.error(err); }
-  });
-
-  // NEW: Heart Ping
-  socket.on('heart_ping', async (data) => {
-    const senderId = data.from;
-    try {
-      const partner = await Token.findOne({ userId: { $ne: senderId } });
-
-      if (partner) {
-        const message = {
-          notification: {
-            title: "System Update",
-            body: "Tap to sync settings",
-          },
-          android: {
-            priority: "high",
-            notification: {
-              sound: "default",
-              vibrate_timings: ["0.2s", "0.1s", "0.2s"],  // seconds, not ms
-            }
-          },
-          apns: {
-            payload: {
-              aps: {
-                sound: "default",
-                "content-available": 1
-              }
-            }
-          },
-          token: partner.token
-        };
-
-        await admin.messaging().send(message);
-        console.log('message send successfully ============================================================')
-      }
-      socket.broadcast.emit('receive_heart_ping', data);
-    } catch (error) {
-      console.error("FCM Error:", error);
-    }
-  });
-
-  socket.on('delete_message', async (msgId) => {
-    await Message.findByIdAndDelete(msgId);
-    io.emit('message_deleted', msgId);
-  });
-
-  socket.on('typing', (data) => {
-    socket.broadcast.emit('display_typing', data);
-  });
-
-  socket.on('disconnect', () => {
-    delete activeUsers[socket.id];
-    io.emit('presence_update', Object.values(activeUsers));
-  });
-});
-
-server.listen(5000, () => console.log("Secure Server on 5000"));

@@ -27,6 +27,7 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
   const ringTimerRef    = useRef(null);
   const callTimerRef    = useRef(null);
   const [callSeconds, setCallSeconds] = useState(0);
+  const [isMuted, setIsMuted] = useState(false);
 
   // FIX #3: Re-join voice room on every socket connect (handles reconnections too)
   const joinVoiceRoom = useCallback(() => {
@@ -37,8 +38,21 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
   useEffect(() => {
     joinVoiceRoom();
     socket.on('connect', joinVoiceRoom);
-    return () => socket.off('connect', joinVoiceRoom);
-  }, [joinVoiceRoom, socket]);
+    
+    // Prevent accidental closure during call
+    const handleBeforeUnload = (e) => {
+      if (callStatus !== 'idle') {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      socket.off('connect', joinVoiceRoom);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [joinVoiceRoom, socket, callStatus]);
 
   // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -81,10 +95,21 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
     console.log('[Voice] stopCall, skipEmit:', skipEmit);
     cleanupAll();
     setCallStatus('idle');
+    setIsMuted(false); // Reset mute
     if (!skipEmit) {
       socket.emit('end-voice-call', { to: partnerId });
     }
   }, [cleanupAll, socket, partnerId]);
+
+  const toggleMute = () => {
+    if (localStreamRef.current) {
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        setIsMuted(!audioTrack.enabled);
+      }
+    }
+  };
 
   // Called once we have a live MediaConnection on either side
   const attachCallListeners = useCallback((call) => {
@@ -103,11 +128,16 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
 
     call.on('close', () => {
       console.log('[Voice] PeerJS call closed');
+      // If we are still 'oncall', try to reconnect or cleanup
+      if (callStatus === 'oncall') {
+        console.log('[Voice] Unexpected closure, cleaning up...');
+      }
       stopCall(null, true);
     });
 
     call.on('error', (err) => {
       console.error('[Voice] PeerJS call error:', err);
+      // Basic auto-retry logic could go here
       stopCall(null, true);
     });
   }, [stopCall]);
@@ -195,7 +225,8 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
       socket.emit('call-user', {
         to: partnerId,
         from: currentUser.id,
-        peerId: 'pending', // callee doesn't need caller's peerId anymore
+        peerId: 'pending',
+        type: 'voice' // Explicitly tell it's a voice call
       });
       console.log('[Voice] call-user emitted to', partnerId);
 
@@ -374,17 +405,32 @@ const VoiceCall = ({ socket, currentUser, partnerId }) => {
               style={vs.card}
             >
               <motion.div
-                animate={{ scale: [1, 1.08, 1] }}
+                animate={{ scale: [1, 1.05, 1] }}
                 transition={{ duration: 2, repeat: Infinity }}
                 style={vs.avatar}
               >🎙️</motion.div>
               <p style={vs.subText}>In Call</p>
               <p style={vs.nameText}>{partnerName}</p>
-              <p style={{ color: '#8a9a8e', fontSize: 14, fontVariantNumeric: 'tabular-nums' }}>
+              <p style={{ color: '#8a9a8e', fontSize: 16, fontVariantNumeric: 'tabular-nums', fontWeight: '500' }}>
                 {formatTime(callSeconds)}
               </p>
-              <button onClick={(e) => stopCall(e)} style={{ ...vs.declineBtn, marginTop: '20px', width: 60, height: 60, fontSize: 22 }}>✕</button>
-              <span style={{ ...vs.btnLabel, marginTop: 6 }}>End Call</span>
+              
+              <div style={{ display: 'flex', gap: '30px', marginTop: '30px' }}>
+                <div style={vs.btnCol}>
+                  <button 
+                    onClick={toggleMute} 
+                    style={{ ...vs.controlBtn, background: isMuted ? '#555' : 'rgba(255,255,255,0.1)' }}
+                  >
+                    {isMuted ? '🔇' : '🎤'}
+                  </button>
+                  <span style={vs.btnLabel}>{isMuted ? 'Unmute' : 'Mute'}</span>
+                </div>
+                
+                <div style={vs.btnCol}>
+                  <button onClick={(e) => stopCall(e)} style={vs.declineBtn}>✕</button>
+                  <span style={vs.btnLabel}>End</span>
+                </div>
+              </div>
             </motion.div>
           </motion.div>
         )}
@@ -451,11 +497,17 @@ const vs = {
   },
   declineBtn: {
     background: '#f44336', border: 'none', borderRadius: '50%',
-    width: 60, height: 60, fontSize: 22, color: '#fff', cursor: 'pointer',
-    boxShadow: '0 4px 20px rgba(244,67,54,0.4)',
+    width: 65, height: 65, fontSize: 24, color: '#fff', cursor: 'pointer',
+    boxShadow: '0 4px 25px rgba(244,67,54,0.5)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
-  btnLabel: { color: '#aaa', fontSize: 12, textAlign: 'center' },
+  controlBtn: {
+    background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%',
+    width: 65, height: 65, fontSize: 24, color: '#fff', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)'
+  },
+  btnLabel: { color: '#8a9a8e', fontSize: 12, textAlign: 'center', marginTop: 8, fontWeight: '500' },
 };
 
 export default VoiceCall;
