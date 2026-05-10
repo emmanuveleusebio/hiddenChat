@@ -56,6 +56,17 @@ const createApp = (io) => {
   // Health check
   app.get('/health', (req, res) => res.status(200).send('OK'));
 
+  // 404 Handler
+  app.use((req, res) => {
+    res.status(404).json({ message: "Route not found" });
+  });
+
+  // Global Error Handler
+  app.use((err, req, res, next) => {
+    console.error(`[Global Error] ${err.stack}`);
+    res.status(500).json({ message: "Internal Server Error" });
+  });
+
   return app;
 };
 

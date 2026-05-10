@@ -27,6 +27,10 @@ const app = createApp(io);
 // 4. Create HTTP Server and attach app
 const server = http.createServer(app);
 
+// Increase timeouts for production stability on Render
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
+
 // 5. Attach Socket.io to server
 io.attach(server);
 
